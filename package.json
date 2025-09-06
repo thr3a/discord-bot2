@@ -1,0 +1,19 @@
+{
+  "name": "typescript-template",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx --env-file .env ./src/scripts/discord.ts",
+    "start": "node /app/dist/scripts/discord.js",
+    "build": "tsc",
+    "lint": "biome check --write ./src"
+  },
+  "dependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.4",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
