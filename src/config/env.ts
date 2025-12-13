@@ -10,6 +10,7 @@ const { DISCORD_BOT_TOKEN, DISCORD_CLIENT_ID, DISCORD_GUILD_ID } = process.env;
 
 if (!DISCORD_BOT_TOKEN) throw requiredVarError('DISCORD_BOT_TOKEN');
 if (!DISCORD_CLIENT_ID) throw requiredVarError('DISCORD_CLIENT_ID');
+if (!DISCORD_GUILD_ID) throw requiredVarError('DISCORD_GUILD_ID');
 
 export const envConfig: EnvConfig = {
   discordBotToken: DISCORD_BOT_TOKEN,
