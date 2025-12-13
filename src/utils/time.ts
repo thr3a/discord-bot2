@@ -1,51 +1,55 @@
-const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
-  timeZone: "Asia/Tokyo",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
+import dayjs from 'dayjs';
+import timezone from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc';
 
-type TimeParts = {
-  year: string;
-  month: string;
-  day: string;
-  hour: string;
-  minute: string;
-  second: string;
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const defaultTimezone = 'Asia/Tokyo';
+const timezoneAliasMap: Record<string, string> = {
+  UTC: 'Etc/UTC',
+  GMT: 'Etc/GMT',
+  JST: 'Asia/Tokyo'
 };
 
-const assertPart = (value: string | undefined, label: keyof TimeParts): string => {
-  if (typeof value !== "string") {
-    throw new Error(`Intl formatter から ${label} が取得できませんでした。`);
+type FormatTimeInput = {
+  timezone?: string;
+  now?: Date;
+};
+
+export type FormattedTime = {
+  timezone: string;
+  formatted: string;
+};
+
+type ResolvedTimezone = {
+  effective: string;
+  label: string;
+};
+
+const isSupportedTimezone = (timezone: string): boolean => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
   }
-  return value;
 };
 
-const extractParts = (date: Date): TimeParts => {
-  const record: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
-  timeFormatter.formatToParts(date).forEach((part) => {
-    if (part.type === "literal") {
-      return;
+const resolveTimezone = (timezone?: string): ResolvedTimezone => {
+  const trimmed = timezone?.trim();
+  if (trimmed) {
+    const candidate = timezoneAliasMap[trimmed] ?? trimmed;
+    if (isSupportedTimezone(candidate)) {
+      return { effective: candidate, label: trimmed };
     }
-    record[part.type] = part.value;
-  });
-
-  return {
-    year: assertPart(record.year, "year"),
-    month: assertPart(record.month, "month"),
-    day: assertPart(record.day, "day"),
-    hour: assertPart(record.hour, "hour"),
-    minute: assertPart(record.minute, "minute"),
-    second: assertPart(record.second, "second"),
-  };
+  }
+  return { effective: defaultTimezone, label: defaultTimezone };
 };
 
-export const formatJstDate = (date: Date): string => {
-  const parts = extractParts(date);
-  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+export const formatCurrentTime = (input?: FormatTimeInput): FormattedTime => {
+  const resolved = resolveTimezone(input?.timezone);
+  const reference = input?.now ?? new Date();
+  const formatted = dayjs(reference).tz(resolved.effective).format('YYYY-MM-DD HH:mm:ss');
+  return { timezone: resolved.label, formatted };
 };
-

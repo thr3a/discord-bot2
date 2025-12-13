@@ -1,15 +1,14 @@
-import { SlashCommandBuilder } from "discord.js";
-
-import type { SlashCommand } from "./types";
-import { formatJstDate } from "../../utils/time";
+import { SlashCommandBuilder } from 'discord.js';
+import { formatCurrentTime } from '../../utils/time';
+import type { SlashCommand } from './types';
 
 export const timeCommand: SlashCommand = {
   data: new SlashCommandBuilder()
-    .setName("time")
-    .setDescription("現在の日本時刻を表示します。"),
+    .setName('time')
+    .setDescription('日本時間 (Asia/Tokyo) の現在時刻を返します'),
   execute: async (interaction) => {
-    const now = formatJstDate(new Date());
-    await interaction.reply(`現在時刻: ${now}`);
-  },
+    const result = formatCurrentTime();
+    const content = `現在時刻 (${result.timezone}) は ${result.formatted} です`;
+    await interaction.reply({ content });
+  }
 };
-

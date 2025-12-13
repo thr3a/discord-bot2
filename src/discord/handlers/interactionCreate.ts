@@ -1,41 +1,28 @@
-import type { Interaction } from "discord.js";
+import { type Client, Events } from 'discord.js';
+import { commandMap } from '../commands';
 
-import type { SlashCommand } from "../commands/types";
+type InteractionCreateHandler = (client: Client) => void;
 
-export type InteractionHandlerContext = {
-  commands: Map<string, SlashCommand>;
-  allowedChannelId: string;
-};
-
-export const isAllowedChannel = (
-  channelId: string | null,
-  allowedChannelId: string,
-): boolean => channelId === allowedChannelId;
-
-export const handleInteractionCreate = async (
-  interaction: Interaction,
-  context: InteractionHandlerContext,
-): Promise<void> => {
-  if (!interaction.isChatInputCommand()) {
-    return;
-  }
-
-  if (!isAllowedChannel(interaction.channelId, context.allowedChannelId)) {
-    if (!interaction.replied && !interaction.deferred) {
+export const registerInteractionCreateHandler: InteractionCreateHandler = (client) => {
+  client.on(Events.InteractionCreate, async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    const command = commandMap.get(interaction.commandName);
+    if (!command) {
       await interaction.reply({
-        content: "このコマンドは指定チャンネルでのみ利用できます。",
-        ephemeral: true,
+        content: '対応するコマンドが見つかりません',
+        ephemeral: true
       });
+      return;
     }
-    return;
-  }
-
-  const command = context.commands.get(interaction.commandName);
-  if (!command) {
-    console.warn(`未登録のコマンドが呼び出されました: ${interaction.commandName}`);
-    return;
-  }
-
-  await command.execute(interaction);
+    try {
+      await command.execute(interaction);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '不明なエラーが発生しました';
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({ content: `エラー: ${message}`, ephemeral: true });
+      } else {
+        await interaction.reply({ content: `エラー: ${message}`, ephemeral: true });
+      }
+    }
+  });
 };
-

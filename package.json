@@ -7,13 +7,15 @@
     "dev": "node --import tsx --env-file .env ./src/scripts/discord.ts",
     "start": "node /app/dist/scripts/discord.js",
     "build": "tsc",
-    "lint": "biome check --write ./src"
+    "lint": "biome check --write ./src",
+    "test": "vitest ./src"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.86",
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^25.0.1",
     "ai": "^5.0.113",
+    "dayjs": "^1.11.19",
     "discord.js": "^14.25.1",
     "dotenv": "^17.2.3",
     "firebase": "^12.6.0",
