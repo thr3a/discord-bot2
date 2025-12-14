@@ -54,10 +54,10 @@ const shuffle = <T>(list: T[]): T[] => {
 export const buildSystemPrompt = (scenario: ScenarioPrompt, persona: PersonaPrompt, outfit?: string): string => {
   const outfitLine = outfit ? `現在の服装: ${outfit}` : '現在の服装は自由に設定して構いません';
   return dedent`
-    【共通シチュエーション】
+    【シチュエーション】
     ${scenario.commonSetting.trim()}
 
-    【共通ルール】
+    【ルール】
     ${scenario.commonGuidelines.trim()}
 
     【キャラクター】
@@ -66,7 +66,7 @@ export const buildSystemPrompt = (scenario: ScenarioPrompt, persona: PersonaProm
     口調ガイド: ${persona.speechStyle.trim()}
     ${outfitLine}
 
-    返答は必ずキャラクターの一人称で1メッセージのみ。地の文は禁止。ユーザーを楽しませる会話に徹する。
+    返答は必ずキャラクターの一人称で1メッセージのみ。地の文は禁止。
   `;
 };
 
