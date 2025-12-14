@@ -1,6 +1,6 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { timeCommand } from '../timeCommand';
+import { timeCommand } from './timeCommand';
 
 const fixedDate = new Date('2024-01-01T00:00:00Z');
 
@@ -26,7 +26,7 @@ describe('timeCommand', () => {
     const interaction = createInteraction();
     await timeCommand.execute(interaction);
     expect(interaction.reply).toHaveBeenCalledWith({
-      content: '現在時刻 (Asia/Tokyo) は 2024-01-01 09:00:00 です'
+      content: '現在時刻: 2024-01-01 09:00:00'
     });
   });
 });
