@@ -6,14 +6,17 @@
   "imports": {
     "#config/*": "./src/config/*",
     "#discord/*": "./src/discord/*",
-    "#utils/*": "./src/utils/*"
+    "#utils/*": "./src/utils/*",
+    "#services/*": "./src/services/*",
+    "#types/*": "./src/types/*"
   },
   "scripts": {
     "dev": "node --import tsx --env-file .env ./src/scripts/discord.ts",
     "start": "node /app/dist/scripts/discord.js",
     "build": "tsc",
-    "lint": "biome check --write ./src",
-    "test": "vitest ./src"
+    "lint": "biome check --write ./src && npx tsc --noEmit",
+    "test": "vitest ./src",
+    "firebase-emu": "firebase emulators:start"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.86",

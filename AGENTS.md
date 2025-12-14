@@ -11,7 +11,7 @@ Firestore を使用して会話履歴と状態を永続化し、ローカルのO
 - 型定義はinterfaceではなくtypeを使用してください。
 - any使用不可
 - 仕様変更があればAGENTS.mdの仕様書に追記すること
-- firebaseのテストはFirebase Emulatorを使うこと(javaインストール済み) Discord 実装とは独立してテストする。
+- firebaseのテストはFirebase Emulatorを使うこと(javaインストール済み) Discord 実装とは独立してテストする。npm run firebase-emuで起動中
 
 # ライブラリ概要
 
@@ -55,6 +55,11 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 - 現在の日本時間（Asia/Tokyo）を表示。
 - 例: `現在時刻: 2025/12/14 00:50:33`
 
+## /debug
+
+- 次に AI に送信するメッセージ一覧を表示（システムプロンプト + 履歴）。
+- 各メッセージは「- role: 先頭20文字（超過時は…）」の形式で整形。
+
 # ロールプレイ仕様
 
 - 対応チャンネルは `1005750360301912210` と `1269204261372166214` のみ。該当チャンネル以外では応答しないこと。
@@ -62,3 +67,10 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 - 応答生成には AI SDK の `generateObject` を使用し、スキーマは `line` と `currentOutfit` の2項目。Discordには `line` のみ送信する。
 - モデルは `createOpenAI({ baseURL: 'http://deep02.local:8000/v1', apiKey: 'sk-dummy' })` で生成したクライアントの `main` を利用する。
 - 各チャンネルごとに会話履歴と服装情報を分離して保持し、チャンネル単位で直列処理する。
+
+# Firestore永続化
+
+- 会話履歴は Firestore の `channels/{channelId}/messages` サブコレクションに `role`, `content`, `createdAt` で保存する。人間は各チャンネルにつき1人を想定する。
+- 各チャンネルの最新の服装は `channels/{channelId}` ドキュメントの `currentOutfit` にのみ保持し、上書き管理する。
+- ボット起動時は Firestore から最新20件を読み込んで状態を復元し、以降も毎メッセージで同期する。
+- Firebase Emulator (デフォルト: `localhost:6066`) を使ってチャットまわりのテストを実施できる構成とし、本番実装と切り離す。

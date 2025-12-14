@@ -1,21 +1,18 @@
 import { generateObject } from 'ai';
 import { type Client, Events, type Message } from 'discord.js';
+import { dedent } from 'ts-dedent';
 import { z } from 'zod';
 import { roleplayModel } from '#config/openai.js';
+import { loadChannelContext, persistAssistantMessage, persistUserMessage } from '#services/channelConversationStore.js';
+import type { ChannelContext, ConversationEntry } from '#types/conversation.js';
 
-const allowedChannelIds = new Set<string>(['1005750360301912210', '1269204261372166214']);
-const systemPrompt = '優しいお姉さんで会話してください。セリフと現在のあなたの服装を書いてください。';
+export const systemPrompt = dedent`
+ユーザーは
+優しいお姉さんで会話してください。セリフと現在のあなたの服装を書いてください。
+`;
+
+export const allowedChannelIds = new Set<string>(['1005750360301912210', '1269204261372166214']);
 const maxHistoryLength = 20;
-
-type ConversationEntry = {
-  role: 'user' | 'assistant';
-  content: string;
-};
-
-type ChannelState = {
-  history: ConversationEntry[];
-  currentOutfit?: string;
-};
 
 type RegisterMessageCreateHandler = (client: Client) => void;
 
@@ -24,23 +21,35 @@ const responseSchema = z.object({
   currentOutfit: z.string()
 });
 
-const channelStates = new Map<string, ChannelState>();
+const channelStates = new Map<string, ChannelContext>();
 const channelQueues = new Map<string, Promise<void>>();
 
-const getChannelState = (channelId: string): ChannelState => {
+const getChannelState = async (channelId: string): Promise<ChannelContext> => {
   const state = channelStates.get(channelId);
   if (state) return state;
-  const initialState: ChannelState = { history: [] };
+  const persisted = await loadChannelContext(channelId, maxHistoryLength);
+  const initialState: ChannelContext = {
+    history: [...persisted.history],
+    currentOutfit: persisted.currentOutfit
+  };
   channelStates.set(channelId, initialState);
   return initialState;
 };
 
-const buildSystemPrompt = (outfit?: string): string => {
+export const getChannelContextSnapshot = async (channelId: string): Promise<ChannelContext> => {
+  const state = await getChannelState(channelId);
+  return {
+    history: state.history.map((entry) => ({ ...entry })),
+    currentOutfit: state.currentOutfit
+  };
+};
+
+export const buildSystemPrompt = (outfit?: string): string => {
   if (!outfit) return systemPrompt;
   return `${systemPrompt}\n現在のお姉さんの服装: ${outfit}`;
 };
 
-const limitHistory = (state: ChannelState): void => {
+const limitHistory = (state: ChannelContext): void => {
   if (state.history.length <= maxHistoryLength) return;
   state.history.splice(0, state.history.length - maxHistoryLength);
 };
@@ -74,12 +83,21 @@ const handleRoleplayMessage = async (message: Message): Promise<void> => {
     return;
   }
 
-  const state = getChannelState(message.channelId);
-  const userEntry: ConversationEntry = { role: 'user', content };
-  state.history.push(userEntry);
-  limitHistory(state);
+  const channelId = message.channelId;
+  let state: ChannelContext | undefined;
+  let userEntryAdded = false;
+  let assistantEntryAdded = false;
+  let previousOutfit: string | undefined;
 
   try {
+    const resolvedState = await getChannelState(channelId);
+    state = resolvedState;
+    const userEntry: ConversationEntry = { role: 'user', content };
+    resolvedState.history.push(userEntry);
+    userEntryAdded = true;
+    limitHistory(resolvedState);
+    await persistUserMessage(channelId, userEntry);
+
     if ('sendTyping' in channel) {
       await channel.sendTyping();
     }
@@ -93,16 +111,29 @@ const handleRoleplayMessage = async (message: Message): Promise<void> => {
 
     const replyContent = object.line.trim();
     const outfit = object.currentOutfit.trim();
+    const assistantEntry: ConversationEntry = { role: 'assistant', content: replyContent };
 
-    state.history.push({ role: 'assistant', content: replyContent });
-    state.currentOutfit = outfit;
-    limitHistory(state);
+    previousOutfit = resolvedState.currentOutfit;
+    resolvedState.history.push(assistantEntry);
+    resolvedState.currentOutfit = outfit;
+    assistantEntryAdded = true;
+    limitHistory(resolvedState);
+
+    await persistAssistantMessage(channelId, assistantEntry, outfit);
 
     await message.reply(replyContent);
   } catch (error) {
-    const lastEntry = state.history[state.history.length - 1];
-    if (lastEntry?.role === 'user' && lastEntry.content === content) {
-      state.history.pop();
+    if (state) {
+      if (assistantEntryAdded) {
+        state.history.pop();
+        state.currentOutfit = previousOutfit;
+      }
+      if (userEntryAdded) {
+        const lastEntry = state.history[state.history.length - 1];
+        if (lastEntry?.role === 'user' && lastEntry.content === content) {
+          state.history.pop();
+        }
+      }
     }
     console.error('ロールプレイ応答の生成に失敗しました', error);
     await message.reply('ごめんなさい、少し調子が悪いみたい。もう一度お願いできますか？');
