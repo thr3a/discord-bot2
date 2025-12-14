@@ -7,8 +7,7 @@ import { loadChannelContext, persistAssistantMessage, persistUserMessage } from 
 import type { ChannelContext, ConversationEntry } from '#types/conversation.js';
 
 export const systemPrompt = dedent`
-ユーザーは
-優しいお姉さんで会話してください。セリフと現在のあなたの服装を書いてください。
+あなたは優しいお姉さんとして会話してください。セリフと現在のあなたの服装を書いてください。
 `;
 
 export const allowedChannelIds = new Set<string>(['1005750360301912210', '1269204261372166214']);
@@ -23,6 +22,22 @@ const responseSchema = z.object({
 
 const channelStates = new Map<string, ChannelContext>();
 const channelQueues = new Map<string, Promise<void>>();
+
+export const resetChannelState = (channelId: string): void => {
+  channelStates.set(channelId, { history: [], currentOutfit: undefined });
+};
+
+export const waitChannelQueueToFinish = async (channelId: string): Promise<void> => {
+  const queue = channelQueues.get(channelId);
+  if (!queue) {
+    return;
+  }
+  try {
+    await queue;
+  } catch (error) {
+    console.error('キュー処理の完了待ちでエラーが発生しました', error);
+  }
+};
 
 const getChannelState = async (channelId: string): Promise<ChannelContext> => {
   const state = channelStates.get(channelId);

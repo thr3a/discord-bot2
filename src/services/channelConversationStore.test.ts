@@ -52,6 +52,7 @@ type StoreModule = typeof import('./channelConversationStore.js');
 let loadChannelContext: StoreModule['loadChannelContext'];
 let persistUserMessage: StoreModule['persistUserMessage'];
 let persistAssistantMessage: StoreModule['persistAssistantMessage'];
+let clearChannelConversation: StoreModule['clearChannelConversation'];
 
 const waitFor = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -65,6 +66,7 @@ beforeAll(async () => {
   loadChannelContext = module.loadChannelContext;
   persistUserMessage = module.persistUserMessage;
   persistAssistantMessage = module.persistAssistantMessage;
+  clearChannelConversation = module.clearChannelConversation;
 });
 
 describe('channelConversationStore', () => {
@@ -150,5 +152,17 @@ describe('channelConversationStore', () => {
       { role: 'assistant', content: 'B-assistant' }
     ]);
     expect(contextB.currentOutfit).toBe('B-スタイル');
+  });
+
+  it('clearChannelConversationで履歴と服装がリセットされる', async () => {
+    const channelId = createChannelId();
+    await persistUserMessage(channelId, { role: 'user', content: '消去対象' });
+    await persistAssistantMessage(channelId, { role: 'assistant', content: '直前の返答' }, '前の服装');
+
+    await clearChannelConversation(channelId);
+
+    const context = await loadChannelContext(channelId, 10);
+    expect(context.history).toEqual([]);
+    expect(context.currentOutfit).toBeUndefined();
   });
 });
