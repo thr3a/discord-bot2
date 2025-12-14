@@ -44,7 +44,6 @@ WyfEXMH6ibm2xgVHoWA4ED/b
   }
 };
 
-// Firebase Admin が読み込まれる前にエミュレータ用の環境変数を設定
 ensureFirebaseEnv();
 
 type StoreModule = typeof import('./channelConversationStore.js');
@@ -53,6 +52,7 @@ let loadChannelContext: StoreModule['loadChannelContext'];
 let persistUserMessage: StoreModule['persistUserMessage'];
 let persistAssistantMessage: StoreModule['persistAssistantMessage'];
 let clearChannelConversation: StoreModule['clearChannelConversation'];
+let updateResponseMode: StoreModule['updateResponseMode'];
 
 const waitFor = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -67,13 +67,30 @@ beforeAll(async () => {
   persistUserMessage = module.persistUserMessage;
   persistAssistantMessage = module.persistAssistantMessage;
   clearChannelConversation = module.clearChannelConversation;
+  updateResponseMode = module.updateResponseMode;
 });
 
+const personaStates = {
+  empty: {
+    tsun: {},
+    yan: {}
+  },
+  tsunOutfit: (outfit: string) => ({
+    tsun: { currentOutfit: outfit },
+    yan: {}
+  }),
+  bothOutfit: (tsunOutfit: string, yanOutfit: string) => ({
+    tsun: { currentOutfit: tsunOutfit },
+    yan: { currentOutfit: yanOutfit }
+  })
+};
+
 describe('channelConversationStore', () => {
-  it('新規チャンネルは空の履歴を返す', async () => {
+  it('新規チャンネルはデフォルトシナリオと空の履歴を返す', async () => {
     const context = await loadChannelContext(createChannelId(), 20);
     expect(context.history).toEqual([]);
-    expect(context.currentOutfit).toBeUndefined();
+    expect(context.responseMode).toEqual({ type: 'all' });
+    expect(Object.keys(context.personaStates)).toEqual(expect.arrayContaining(['tsun', 'yan']));
   });
 
   it('ユーザーメッセージ保存と履歴制限が機能する', async () => {
@@ -89,80 +106,67 @@ describe('channelConversationStore', () => {
       { role: 'user', content: 'second' },
       { role: 'user', content: 'third' }
     ]);
-    expect(context.currentOutfit).toBeUndefined();
   });
 
-  it('ユーザーとアシスタントのメッセージが交互に保存されても順序が維持される', async () => {
+  it('ユーザーとアシスタントのメッセージ順が維持され、キャラクターIDも保存される', async () => {
     const channelId = createChannelId();
     await persistUserMessage(channelId, { role: 'user', content: 'user-1' });
     await waitFor(5);
-    await persistAssistantMessage(channelId, { role: 'assistant', content: 'assistant-1' }, '制服スタイル');
+    await persistAssistantMessage(
+      channelId,
+      { role: 'assistant', content: 'assistant-1', personaId: 'tsun' },
+      personaStates.tsunOutfit('制服スタイル')
+    );
     await waitFor(5);
     await persistUserMessage(channelId, { role: 'user', content: 'user-2' });
     await waitFor(5);
-    await persistAssistantMessage(channelId, { role: 'assistant', content: 'assistant-2' }, 'カジュアル');
+    await persistAssistantMessage(
+      channelId,
+      { role: 'assistant', content: 'assistant-2', personaId: 'yan' },
+      personaStates.bothOutfit('制服スタイル', 'カジュアル')
+    );
 
     const context = await loadChannelContext(channelId, 10);
     expect(context.history).toEqual([
       { role: 'user', content: 'user-1' },
-      { role: 'assistant', content: 'assistant-1' },
+      { role: 'assistant', content: 'assistant-1', personaId: 'tsun' },
       { role: 'user', content: 'user-2' },
-      { role: 'assistant', content: 'assistant-2' }
+      { role: 'assistant', content: 'assistant-2', personaId: 'yan' }
     ]);
-    expect(context.currentOutfit).toBe('カジュアル');
+    const tsunState = context.personaStates.tsun;
+    if (!tsunState) {
+      throw new Error('tsunの状態が存在しません');
+    }
+    const yanState = context.personaStates.yan;
+    if (!yanState) {
+      throw new Error('yanの状態が存在しません');
+    }
+    expect(tsunState.currentOutfit).toBe('制服スタイル');
+    expect(yanState.currentOutfit).toBe('カジュアル');
   });
 
-  it('複数のアシスタントメッセージ保存でcurrentOutfitが最新に上書きされる', async () => {
+  it('レスポンスモードの更新が永続化される', async () => {
     const channelId = createChannelId();
-    await persistAssistantMessage(channelId, { role: 'assistant', content: '一回目' }, '制服スタイル');
-    await waitFor(5);
-    await persistAssistantMessage(channelId, { role: 'assistant', content: '二回目' }, 'お出かけコーデ');
-    await waitFor(5);
-    await persistAssistantMessage(channelId, { role: 'assistant', content: '三回目' }, 'ルームウェア');
-
-    const context = await loadChannelContext(channelId, 10);
-    expect(context.history).toEqual([
-      { role: 'assistant', content: '一回目' },
-      { role: 'assistant', content: '二回目' },
-      { role: 'assistant', content: '三回目' }
-    ]);
-    expect(context.currentOutfit).toBe('ルームウェア');
+    await updateResponseMode(channelId, { type: 'single', personaId: 'yan' });
+    const context = await loadChannelContext(channelId, 5);
+    expect(context.responseMode).toEqual({ type: 'single', personaId: 'yan' });
   });
 
-  it('異なるチャンネル間で履歴と服装が独立して管理される', async () => {
-    const channelA = createChannelId();
-    const channelB = createChannelId();
-
-    await persistUserMessage(channelA, { role: 'user', content: 'A-user' });
-    await persistAssistantMessage(channelA, { role: 'assistant', content: 'A-assistant' }, 'A-スタイル');
-    await persistUserMessage(channelB, { role: 'user', content: 'B-user' });
-    await persistAssistantMessage(channelB, { role: 'assistant', content: 'B-assistant' }, 'B-スタイル');
-
-    const contextA = await loadChannelContext(channelA, 10);
-    const contextB = await loadChannelContext(channelB, 10);
-
-    expect(contextA.history).toEqual([
-      { role: 'user', content: 'A-user' },
-      { role: 'assistant', content: 'A-assistant' }
-    ]);
-    expect(contextA.currentOutfit).toBe('A-スタイル');
-
-    expect(contextB.history).toEqual([
-      { role: 'user', content: 'B-user' },
-      { role: 'assistant', content: 'B-assistant' }
-    ]);
-    expect(contextB.currentOutfit).toBe('B-スタイル');
-  });
-
-  it('clearChannelConversationで履歴と服装がリセットされる', async () => {
+  it('clearChannelConversationで履歴がリセットされ、モードはデフォルトに戻る', async () => {
     const channelId = createChannelId();
     await persistUserMessage(channelId, { role: 'user', content: '消去対象' });
-    await persistAssistantMessage(channelId, { role: 'assistant', content: '直前の返答' }, '前の服装');
+    await persistAssistantMessage(
+      channelId,
+      { role: 'assistant', content: '直前の返答', personaId: 'tsun' },
+      personaStates.tsunOutfit('前の服装')
+    );
+    await updateResponseMode(channelId, { type: 'single', personaId: 'tsun' });
 
     await clearChannelConversation(channelId);
 
     const context = await loadChannelContext(channelId, 10);
     expect(context.history).toEqual([]);
-    expect(context.currentOutfit).toBeUndefined();
+    expect(context.responseMode).toEqual({ type: 'all' });
+    expect(Object.values(context.personaStates).every((state) => !state.currentOutfit)).toBe(true);
   });
 });

@@ -28,14 +28,22 @@ export const debugCommand: SlashCommand = {
       return;
     }
     const context = await getChannelContextSnapshot(channelId);
-    const entries = [
-      {
-        role: 'system',
-        content: buildSystemPrompt(context.currentOutfit)
-      },
-      ...context.history
-    ];
-    const lines = entries.map((entry) => `- ${entry.role}: ${formatContentPreview(entry.content)}`);
+    const personaMap = new Map(context.scenario.personas.map((persona) => [persona.id, persona]));
+    const systemEntries = context.scenario.personas.map((persona) => ({
+      role: `system(${persona.displayName})`,
+      content: buildSystemPrompt(context.scenario, persona, context.personaStates[persona.id]?.currentOutfit)
+    }));
+    const historyEntries = context.history.map((entry) => {
+      if (entry.role === 'assistant') {
+        const persona = personaMap.get(entry.personaId);
+        const role = persona ? `assistant(${persona.displayName})` : 'assistant';
+        return { role, content: entry.content };
+      }
+      return entry;
+    });
+    const lines = [...systemEntries, ...historyEntries].map(
+      (entry) => `- ${entry.role}: ${formatContentPreview(entry.content)}`
+    );
     await interaction.reply({
       content: lines.join('\n'),
       ephemeral: true

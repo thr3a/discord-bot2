@@ -46,21 +46,47 @@ describe('debugCommand', () => {
     const channelId = 'allowed-channel';
     allowedChannelIds.add(channelId);
     snapshotMock.mockResolvedValue({
-      currentOutfit: 'outfit',
+      scenario: {
+        commonSetting: 'setting',
+        commonGuidelines: 'guidelines',
+        personas: [
+          {
+            id: 'tsun',
+            displayName: 'つんちゃん',
+            archetype: 'ツンデレ',
+            profile: 'profile',
+            speechStyle: 'style'
+          },
+          {
+            id: 'yan',
+            displayName: 'やんちゃん',
+            archetype: 'ヤンデレ',
+            profile: 'profile',
+            speechStyle: 'style'
+          }
+        ]
+      },
+      personaStates: {
+        tsun: { currentOutfit: 'sailor' },
+        yan: {}
+      },
       history: [
         { role: 'user', content: 'user message exceeding twenty chars' },
-        { role: 'assistant', content: 'ok' }
-      ]
+        { role: 'assistant', content: 'ok', personaId: 'yan' }
+      ],
+      responseMode: { type: 'all' }
     });
-    systemPromptMock.mockReturnValue('system message exceeding twenty chars');
+    systemPromptMock.mockReturnValueOnce('tsun system exceeding twenty chars');
+    systemPromptMock.mockReturnValueOnce('yan system exceeding twenty chars');
     const interaction = createInteraction(channelId);
 
     await debugCommand.execute(interaction);
 
     const expectedContent = [
-      `- system: ${formatContentPreview('system message exceeding twenty chars')}`,
+      `- system(つんちゃん): ${formatContentPreview('tsun system exceeding twenty chars')}`,
+      `- system(やんちゃん): ${formatContentPreview('yan system exceeding twenty chars')}`,
       `- user: ${formatContentPreview('user message exceeding twenty chars')}`,
-      `- assistant: ${formatContentPreview('ok')}`
+      `- assistant(やんちゃん): ${formatContentPreview('ok')}`
     ].join('\n');
 
     expect(interaction.reply).toHaveBeenCalledWith({

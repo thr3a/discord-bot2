@@ -4,11 +4,19 @@ import { dedent } from 'ts-dedent';
 import { z } from 'zod';
 import { roleplayModel } from '#config/openai.js';
 import { loadChannelContext, persistAssistantMessage, persistUserMessage } from '#services/channelConversationStore.js';
-import type { ChannelContext, ConversationEntry } from '#types/conversation.js';
-
-export const systemPrompt = dedent`
-あなたは優しいお姉さんとして会話してください。セリフと現在のあなたの服装を書いてください。
-`;
+import { isSingleResponseMode } from '#types/conversation.js';
+import type {
+  AssistantConversationEntry,
+  ChannelContext,
+  ConversationEntry,
+  ConversationRole,
+  PersonaId,
+  PersonaStateMap,
+  PersonaStateSnapshot,
+  ResponseMode,
+  UserConversationEntry
+} from '#types/conversation.js';
+import type { PersonaPrompt, ScenarioPrompt } from '#types/scenario.js';
 
 export const allowedChannelIds = new Set<string>(['1005750360301912210', '1269204261372166214']);
 const maxHistoryLength = 20;
@@ -20,11 +28,114 @@ const responseSchema = z.object({
   currentOutfit: z.string()
 });
 
+type ModelMessage = {
+  role: ConversationRole;
+  content: string;
+};
+
 const channelStates = new Map<string, ChannelContext>();
 const channelQueues = new Map<string, Promise<void>>();
 
+const shuffle = <T>(list: T[]): T[] => {
+  const clone = [...list];
+  for (let i = clone.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const current = clone[i];
+    const target = clone[j];
+    if (current === undefined || target === undefined) {
+      continue;
+    }
+    clone[i] = target;
+    clone[j] = current;
+  }
+  return clone;
+};
+
+export const buildSystemPrompt = (scenario: ScenarioPrompt, persona: PersonaPrompt, outfit?: string): string => {
+  const outfitLine = outfit ? `現在の服装: ${outfit}` : '現在の服装は自由に設定して構いません';
+  return dedent`
+    【共通シチュエーション】
+    ${scenario.commonSetting.trim()}
+
+    【共通ルール】
+    ${scenario.commonGuidelines.trim()}
+
+    【キャラクター】
+    名前: ${persona.displayName} / ${persona.archetype}
+    プロフィール: ${persona.profile.trim()}
+    口調ガイド: ${persona.speechStyle.trim()}
+    ${outfitLine}
+
+    返答は必ずキャラクターの一人称で1メッセージのみ。地の文は禁止。ユーザーを楽しませる会話に徹する。
+  `;
+};
+
+const buildMessageForModel = (history: ConversationEntry[], scenario: ScenarioPrompt): ModelMessage[] => {
+  const personaNameMap = new Map<PersonaId, string>();
+  scenario.personas.forEach((persona) => {
+    personaNameMap.set(persona.id, persona.displayName);
+  });
+  return history.map((entry) => {
+    if (entry.role === 'assistant') {
+      const speaker = personaNameMap.get(entry.personaId) ?? entry.personaId;
+      return {
+        role: 'assistant',
+        content: `【${speaker}】${entry.content}`
+      };
+    }
+    return { role: 'user', content: entry.content };
+  });
+};
+
+const limitHistory = (state: ChannelContext): void => {
+  if (state.history.length <= maxHistoryLength) return;
+  state.history.splice(0, state.history.length - maxHistoryLength);
+};
+
+const getRespondingPersonas = (context: ChannelContext): PersonaPrompt[] => {
+  const responseMode = context.responseMode;
+  if (isSingleResponseMode(responseMode)) {
+    const persona = context.scenario.personas.find((item) => item.id === responseMode.personaId);
+    return persona ? [persona] : context.scenario.personas.slice(0, 1);
+  }
+  return shuffle(context.scenario.personas);
+};
+
+const updatePersonaState = (personaStates: PersonaStateMap, personaId: PersonaId, outfit?: string): PersonaStateMap => {
+  const trimmed = outfit?.trim();
+  if (trimmed && trimmed.length > 0) {
+    personaStates[personaId] = { currentOutfit: trimmed };
+  } else {
+    personaStates[personaId] = {};
+  }
+  return personaStates;
+};
+
+const sendPersonaReply = async (
+  message: Message,
+  displayName: string,
+  line: string,
+  isFirst: boolean
+): Promise<void> => {
+  const content = `**${displayName}**: ${line}`;
+  if (isFirst) {
+    await message.reply({ content });
+    return;
+  }
+  await message.reply({
+    content,
+    allowedMentions: { repliedUser: false }
+  });
+};
+
 export const resetChannelState = (channelId: string): void => {
-  channelStates.set(channelId, { history: [], currentOutfit: undefined });
+  channelStates.delete(channelId);
+};
+
+export const setChannelResponseMode = (channelId: string, responseMode: ResponseMode): void => {
+  const state = channelStates.get(channelId);
+  if (!state) return;
+  state.responseMode = responseMode;
 };
 
 export const waitChannelQueueToFinish = async (channelId: string): Promise<void> => {
@@ -45,7 +156,9 @@ const getChannelState = async (channelId: string): Promise<ChannelContext> => {
   const persisted = await loadChannelContext(channelId, maxHistoryLength);
   const initialState: ChannelContext = {
     history: [...persisted.history],
-    currentOutfit: persisted.currentOutfit
+    personaStates: { ...persisted.personaStates },
+    scenario: persisted.scenario,
+    responseMode: persisted.responseMode
   };
   channelStates.set(channelId, initialState);
   return initialState;
@@ -53,28 +166,22 @@ const getChannelState = async (channelId: string): Promise<ChannelContext> => {
 
 export const getChannelContextSnapshot = async (channelId: string): Promise<ChannelContext> => {
   const state = await getChannelState(channelId);
+  const personaStates: PersonaStateMap = {};
+  Object.entries(state.personaStates).forEach(([key, value]) => {
+    personaStates[key] = value.currentOutfit ? { currentOutfit: value.currentOutfit } : {};
+  });
   return {
     history: state.history.map((entry) => ({ ...entry })),
-    currentOutfit: state.currentOutfit
+    personaStates,
+    scenario: state.scenario,
+    responseMode: state.responseMode
   };
-};
-
-export const buildSystemPrompt = (outfit?: string): string => {
-  if (!outfit) return systemPrompt;
-  return `${systemPrompt}\n現在のお姉さんの服装: ${outfit}`;
-};
-
-const limitHistory = (state: ChannelContext): void => {
-  if (state.history.length <= maxHistoryLength) return;
-  state.history.splice(0, state.history.length - maxHistoryLength);
 };
 
 const enqueueChannelTask = (channelId: string, task: () => Promise<void>): void => {
   const previous = channelQueues.get(channelId) ?? Promise.resolve();
-  // biome-ignore lint/style/useConst: <explanation>
-  let finalPromise: Promise<void>;
   const run = previous.finally(() => task());
-  finalPromise = run
+  const finalPromise = run
     .catch((error) => {
       console.error('ロールプレイ処理でエラーが発生しました', error);
     })
@@ -101,13 +208,13 @@ const handleRoleplayMessage = async (message: Message): Promise<void> => {
   const channelId = message.channelId;
   let state: ChannelContext | undefined;
   let userEntryAdded = false;
-  let assistantEntryAdded = false;
-  let previousOutfit: string | undefined;
+  const addedAssistants: AssistantConversationEntry[] = [];
+  const previousPersonaStates = new Map<PersonaId, PersonaStateSnapshot>();
 
   try {
     const resolvedState = await getChannelState(channelId);
     state = resolvedState;
-    const userEntry: ConversationEntry = { role: 'user', content };
+    const userEntry: UserConversationEntry = { role: 'user', content };
     resolvedState.history.push(userEntry);
     userEntryAdded = true;
     limitHistory(resolvedState);
@@ -117,36 +224,70 @@ const handleRoleplayMessage = async (message: Message): Promise<void> => {
       await channel.sendTyping();
     }
 
-    const { object } = await generateObject({
-      model: roleplayModel,
-      schema: responseSchema,
-      messages: state.history,
-      system: buildSystemPrompt(state.currentOutfit)
-    });
+    const personas = getRespondingPersonas(resolvedState);
+    if (personas.length === 0) {
+      await message.reply('利用可能なキャラクターが設定されていません。管理者へ連絡してください。');
+      return;
+    }
 
-    const replyContent = object.line.trim();
-    const outfit = object.currentOutfit.trim();
-    const assistantEntry: ConversationEntry = { role: 'assistant', content: replyContent };
+    const replies: Array<{ persona: PersonaPrompt; line: string }> = [];
 
-    previousOutfit = resolvedState.currentOutfit;
-    resolvedState.history.push(assistantEntry);
-    resolvedState.currentOutfit = outfit;
-    assistantEntryAdded = true;
-    limitHistory(resolvedState);
+    for (const persona of personas) {
+      const system = buildSystemPrompt(
+        resolvedState.scenario,
+        persona,
+        resolvedState.personaStates[persona.id]?.currentOutfit
+      );
+      const messagesForModel = buildMessageForModel(resolvedState.history, resolvedState.scenario);
+      const { object } = await generateObject({
+        model: roleplayModel,
+        schema: responseSchema,
+        messages: messagesForModel,
+        system
+      });
 
-    await persistAssistantMessage(channelId, assistantEntry, outfit);
+      const replyContent = object.line.trim() || '……';
+      const outfit = object.currentOutfit.trim();
+      const assistantEntry: AssistantConversationEntry = {
+        role: 'assistant',
+        content: replyContent,
+        personaId: persona.id
+      };
 
-    await message.reply(replyContent);
+      addedAssistants.push(assistantEntry);
+      previousPersonaStates.set(persona.id, { ...resolvedState.personaStates[persona.id] });
+
+      resolvedState.history.push(assistantEntry);
+      limitHistory(resolvedState);
+      updatePersonaState(resolvedState.personaStates, persona.id, outfit.length > 0 ? outfit : undefined);
+
+      await persistAssistantMessage(channelId, assistantEntry, resolvedState.personaStates);
+      replies.push({ persona, line: replyContent });
+    }
+
+    for (let i = 0; i < replies.length; i++) {
+      const reply = replies[i];
+      if (!reply) continue;
+      await sendPersonaReply(message, reply.persona.displayName, reply.line, i === 0);
+    }
   } catch (error) {
-    if (state) {
-      if (assistantEntryAdded) {
-        state.history.pop();
-        state.currentOutfit = previousOutfit;
+    const existingState = state;
+    if (existingState) {
+      while (addedAssistants.length > 0) {
+        addedAssistants.pop();
+        existingState.history.pop();
+      }
+      for (const [personaId, snapshot] of previousPersonaStates.entries()) {
+        if (snapshot?.currentOutfit) {
+          existingState.personaStates[personaId] = { currentOutfit: snapshot.currentOutfit };
+        } else {
+          existingState.personaStates[personaId] = {};
+        }
       }
       if (userEntryAdded) {
-        const lastEntry = state.history[state.history.length - 1];
+        const lastEntry = existingState.history[existingState.history.length - 1];
         if (lastEntry?.role === 'user' && lastEntry.content === content) {
-          state.history.pop();
+          existingState.history.pop();
         }
       }
     }
