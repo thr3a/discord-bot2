@@ -18,16 +18,10 @@ client.on(Events.Error, (error) => {
 });
 
 const bootstrap = async (): Promise<void> => {
-  console.log('Discordボットの初期化を開始します');
   registerInteractionCreateHandler(client);
-  console.log('interactionCreateハンドラの登録が完了しました');
   registerMessageCreateHandler(client);
-  console.log('messageCreateハンドラの登録が完了しました');
   await registerCommands();
-  console.log('スラッシュコマンドの登録が完了しました');
-  console.log('Discordへのログイン処理を開始します');
   await client.login(envConfig.discordBotToken);
-  console.log('Discordへのログイン要求を送信しました');
 };
 
 bootstrap().catch((error) => {
