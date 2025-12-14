@@ -2,16 +2,14 @@
   "include": ["src/**/*"],
   "compilerOptions": {
     // File Layout
-    "paths": {
-      "@/*": ["./src/*"]
-    },
     "rootDir": "./src",
     "outDir": "./dist",
-    "moduleResolution": "bundler",
+    "moduleResolution": "nodenext",
+    "customConditions": ["development"],
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-    "module": "esnext",
+    "module": "nodenext",
     "target": "esnext",
     "types": [],
     // For nodejs:

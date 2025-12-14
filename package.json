@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "imports": {
+    "#config/*": "./src/config/*",
+    "#discord/*": "./src/discord/*",
+    "#utils/*": "./src/utils/*"
+  },
   "scripts": {
     "dev": "node --import tsx --env-file .env ./src/scripts/discord.ts",
     "start": "node /app/dist/scripts/discord.js",
@@ -12,6 +17,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.86",
+    "@ai-sdk/openai-compatible": "^1.0.29",
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^25.0.1",
     "ai": "^5.0.113",
@@ -25,6 +31,7 @@
     "ts-dedent": "^2.2.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.15"
+    "vitest": "^4.0.15",
+    "zod": "^4.1.13"
   }
 }

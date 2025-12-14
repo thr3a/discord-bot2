@@ -1,6 +1,6 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { timeCommand } from './timeCommand';
+import { timeCommand } from '#discord/commands/timeCommand.js';
 
 const fixedDate = new Date('2024-01-01T00:00:00Z');
 

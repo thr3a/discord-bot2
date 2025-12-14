@@ -1,5 +1,5 @@
-import { timeCommand } from './timeCommand';
-import type { SlashCommand } from './types';
+import { timeCommand } from '#discord/commands/timeCommand.js';
+import type { SlashCommand } from '#discord/commands/types.js';
 
 export const commands: SlashCommand[] = [timeCommand];
 
