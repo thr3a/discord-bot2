@@ -11,7 +11,7 @@ Firestore を使用して会話履歴と状態を永続化し、ローカルのO
 - 型定義はinterfaceではなくtypeを使用してください。
 - any使用不可
 - 仕様変更があればAGENTS.mdの仕様書に追記すること
-- firebaseのテストはFirebase Emulatorを使うこと（javaインストール済み
+- firebaseのテストはFirebase Emulatorを使うこと(javaインストール済み) Discord 実装とは独立してテストする。
 
 # ライブラリ概要
 
@@ -60,18 +60,3 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 - 対応チャンネルは `1005750360301912210` と `1269204261372166214` のみ。該当チャンネル以外では応答しないこと。
 - 各チャンネルでは処理を直列化し、同時に複数メッセージを処理しない。
 - システムプロンプトは `優しいお姉さんで会話してください` を常に使用する（シチュエーション管理導入までの暫定仕様）。
-
-# Firestore データ構造
-
-- `channelStates/{channelId}` ドキュメント
-  - フィールド: `mode`, `situation`, `updatedAt`
-  - `mode` は `idle` / `situation_input` / `awaiting_reinput` / `prompt_situation_input`
-- `channelConversations/{channelId}/messages/{messageId}`
-  - フィールド: `role`, `content`, `discordMessageId`, `discordUserMessageId`, `createdAt`
-  - `role` は `user` か `assistant`
-- Firestore emulator を用いたテストを追加済み。Discord 実装とは独立してテストする。
-
-# AI 連携
-
-- AI SDK (`generateText`) を使用し、`createOpenAI` で `baseURL: http://deep02.local:8000/v1`、`apiKey: sk-dummy` を設定する。
-- モデル名は指示があるまで変更しない。
