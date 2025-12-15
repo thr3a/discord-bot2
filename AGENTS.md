@@ -17,6 +17,7 @@ Firestore を使用して会話履歴と状態を永続化し、ローカルのO
 - 関数はアロー関数を使用してください。
 - 早期リターンを使って条件分岐をフラット化してください。
 - try catch の使用は最低限に留め過度な使用を避けてください。
+- モジュールのインポートには、Subpath Imports（#プレフィックス）を使用すること。 `例: import { roleplayModel } from '#config/openai.js';` 相対パス (Relative Paths) 、従来の Path Alias (@) は禁止
 
 # ライブラリ概要
 
@@ -52,6 +53,7 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 - `situation_input`: シチュエーション入力待ちモード。ユーザーのメッセージをシチュエーションとして保存し、`idle` に遷移。
 - `awaiting_reinput`: ユーザーのメッセージに ♻️ リアクションが付いた場合に遷移。ユーザーに再入力を促す。
 - `prompt_situation_input`: `/prompt` コマンド実行後に遷移。ユーザーの入力に基づいてプロンプトを生成する。
+- `scenario_preview`: `/init` で生成したシチュエーションを仮保存し、ボットが送ったプレビューへの 🆗 リアクションを待っている状態。
 
 # スラッシュコマンド
 
@@ -59,8 +61,10 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 
 - オプション `characters` (必須, 1〜3) でAIキャラクターの人数を指定。
 - コマンド実行時にチャンネル状態を `situation_input` へ遷移し、実行ユーザーのみが次のメッセージでシチュエーションを入力できる。
-- 入力されたテキストは LLM（generateObject）で `世界観/シーン/人間の設定/キャラクター設定(人数分)/目標/終了条件/トーン/関係性` を含む構造体へ拡張し、その結果を Firestore のシナリオとして保存する。
-- シチュエーション登録後は会話履歴をクリアし、`channels/{channelId}.state` を `idle` に戻す。
+- 入力されたテキストは LLM（generateObject）で `世界観/シーン/人間の設定/キャラクター設定(人数分)/目標/終了条件/トーン/関係性` を含む構造体へ拡張し、結果をテキストファイルへ整形して Discord に添付・案内メッセージで返信する（/show と同形式）。
+- 生成結果は即時に本登録せず、`channels/{channelId}.pendingScenario` へ仮保存し、チャンネル状態を `scenario_preview`（`requestedBy`, `personaCount`, `previewMessageId` を保持）へ遷移する。
+- ボットのプレビュー投稿に `/init` 実行ユーザーが 🆗 リアクションを付けるとシチュエーションを本登録し、会話履歴をクリアして `channels/{channelId}.scenario` へ反映する。完了時は「シチュエーションを登録しました。ロールプレイを開始できます。」と返信し、状態を `idle` へ戻す。
+- プレビュー中に別メッセージが送られた場合はシチュエーション確定待ちである旨と、🆗 リアクションで確定する必要があることを案内する。
 
 ## /time
 
@@ -105,8 +109,9 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 
 - 会話履歴は Firestore の `channels/{channelId}/messages` サブコレクションに `role`, `content`, `personaId`, `createdAt` で保存する。`personaId` でどのAIが話したか必ず記録する。
 - 各チャンネルのシナリオは `channels/{channelId}.scenario` に Zod 準拠の構造体として保存する（`worldSetting{ location, time, situation }`, `humanCharacter`, `relationship`, `personas[]`）。今後のカスタマイズに備え、常に最新構造を維持する。
+- シチュエーションの仮保存は `channels/{channelId}.pendingScenario` に `{ scenario, requestedBy, previewMessageId, createdAt }` として保持し、🆗 リアクションで本登録後に削除する。
 - キャラクターごとの最新の服装は `channels/{channelId}.personaStates.{personaId}.currentOutfit` にのみ保持し、上書き管理する。
 - 現在の会話モードは `channels/{channelId}.responseMode` に `{ type: 'all' }` または `{ type: 'single', personaId }` で保存し、`/aimode` で切り替える。
-- チャンネル状態は `channels/{channelId}.state` に `{ type: 'idle' }`, `{ type: 'situation_input', personaCount, requestedBy }`, `{ type: 'prompt_situation_input', personaCount, requestedBy }`, `{ type: 'awaiting_reinput' }` のいずれかで保存する。
+- チャンネル状態は `channels/{channelId}.state` に `{ type: 'idle' }`, `{ type: 'situation_input', personaCount, requestedBy }`, `{ type: 'prompt_situation_input', personaCount, requestedBy }`, `{ type: 'scenario_preview', personaCount, requestedBy, previewMessageId }`, `{ type: 'awaiting_reinput' }` のいずれかで保存する。
 - ボット起動時は Firestore から最新20件を読み込んで状態を復元し、以降も毎メッセージで同期する。
 - Firebase Emulator (デフォルト: `localhost:6066`) を使ってチャットまわりのテストを実施できる構成とし、本番実装と切り離す。
