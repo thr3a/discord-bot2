@@ -4,6 +4,7 @@ import { firestore } from '#config/firebaseAdmin.js';
 import type {
   AssistantConversationEntry,
   ChannelContext,
+  ChannelState,
   ConversationEntry,
   ConversationRole,
   PersonaId,
@@ -11,7 +12,13 @@ import type {
   ResponseMode,
   UserConversationEntry
 } from '#types/conversation.js';
-import { defaultResponseMode, isSingleResponseMode, responseModeSchema } from '#types/conversation.js';
+import {
+  channelStateSchema,
+  defaultChannelState,
+  defaultResponseMode,
+  isSingleResponseMode,
+  responseModeSchema
+} from '#types/conversation.js';
 import { type ScenarioPrompt, scenarioPromptSchema } from '#types/scenario.js';
 
 type MessageDocument = {
@@ -25,6 +32,7 @@ type ChannelDocument = {
   scenario?: ScenarioPrompt;
   personaStates?: PersonaStateMap;
   responseMode?: ResponseMode;
+  state?: ChannelState;
   updatedAt?: Timestamp;
 };
 
@@ -78,6 +86,16 @@ const parseResponseMode = (candidate: unknown, scenario: ScenarioPrompt): Respon
   return mode;
 };
 
+const parseChannelState = (candidate?: unknown): ChannelState | undefined => {
+  if (!candidate) return undefined;
+  const parsed = channelStateSchema.safeParse(candidate);
+  if (!parsed.success) {
+    console.warn('チャンネル状態のパースに失敗したため初期値を使用します', parsed.error);
+    return undefined;
+  }
+  return parsed.data;
+};
+
 const deleteLegacyFieldsIfNeeded = (rawData?: LegacyChannelDocument): Record<string, unknown> => {
   if (!rawData?.currentOutfit) return {};
   return {
@@ -119,6 +137,12 @@ export const loadChannelContext = async (channelId: string, historyLimit: number
     pendingUpdates.responseMode = responseMode;
   }
 
+  let channelState = parseChannelState(rawData?.state);
+  if (!channelState) {
+    channelState = defaultChannelState;
+    pendingUpdates.state = channelState;
+  }
+
   if (Object.keys(pendingUpdates).length > 0) {
     pendingUpdates.updatedAt = Timestamp.now();
     await channelRef.set(pendingUpdates, { merge: true });
@@ -146,7 +170,8 @@ export const loadChannelContext = async (channelId: string, historyLimit: number
     history,
     personaStates: normalizedStates,
     scenario,
-    responseMode
+    responseMode,
+    state: channelState
   };
 };
 
@@ -192,6 +217,30 @@ export const updateResponseMode = async (channelId: string, responseMode: Respon
     },
     { merge: true }
   );
+};
+
+export const persistChannelState = async (channelId: string, state: ChannelState): Promise<void> => {
+  await channelsCollection.doc(channelId).set(
+    {
+      state,
+      updatedAt: Timestamp.now()
+    },
+    { merge: true }
+  );
+};
+
+export const persistScenarioPrompt = async (channelId: string, scenario: ScenarioPrompt): Promise<PersonaStateMap> => {
+  const personaStates = normalizePersonaStates(scenario);
+  await channelsCollection.doc(channelId).set(
+    {
+      scenario,
+      personaStates,
+      responseMode: defaultResponseMode,
+      updatedAt: Timestamp.now()
+    },
+    { merge: true }
+  );
+  return personaStates;
 };
 
 const deleteMessagesInChunks = async (collection: CollectionReference<MessageDocument>): Promise<void> => {

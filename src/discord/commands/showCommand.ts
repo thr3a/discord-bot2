@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { AttachmentBuilder, SlashCommandBuilder } from 'discord.js';
 import type { SlashCommand } from '#discord/commands/types.js';
 import { allowedChannelIds, buildSystemPrompt, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
 import type { PersonaStateMap } from '#types/conversation.js';
@@ -11,6 +11,12 @@ const formatSystemPrompts = (scenario: ScenarioPrompt, personaStates: PersonaSta
 };
 
 export const noScenarioMessage = '現在登録されているシチュエーションはありません。/init で登録できます。';
+export const systemPromptFileName = 'system-prompts.txt';
+export const systemPromptFileNotice = 'システムプロンプトをテキストファイルで送信しました。';
+
+const createPromptAttachment = (content: string): AttachmentBuilder => {
+  return new AttachmentBuilder(Buffer.from(content, 'utf-8'), { name: systemPromptFileName });
+};
 
 export const showCommand: SlashCommand = {
   data: new SlashCommandBuilder().setName('show').setDescription('現在のシチュエーションを表示します'),
@@ -27,11 +33,18 @@ export const showCommand: SlashCommand = {
     const context = await getChannelContextSnapshot(channelId);
     const scenario = context.scenario as ScenarioPrompt | undefined;
     if (!scenario) {
-      await interaction.reply({ content: noScenarioMessage });
+      await interaction.reply({
+        content: noScenarioMessage,
+        files: [createPromptAttachment(noScenarioMessage)]
+      });
       return;
     }
 
     const content = formatSystemPrompts(scenario, context.personaStates);
-    await interaction.reply({ content: content.trim().length > 0 ? content : noScenarioMessage });
+    const fileContent = content.trim().length > 0 ? content : noScenarioMessage;
+    await interaction.reply({
+      content: systemPromptFileNotice,
+      files: [createPromptAttachment(fileContent)]
+    });
   }
 };

@@ -36,11 +36,30 @@ export type PersonaStateSnapshot = {
 
 export type PersonaStateMap = Record<PersonaId, PersonaStateSnapshot>;
 
+export const channelStateSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('idle') }),
+  z.object({
+    type: z.literal('situation_input'),
+    personaCount: z.number().int().min(1).max(3),
+    requestedBy: z.string().min(1)
+  }),
+  z.object({ type: z.literal('awaiting_reinput') }),
+  z.object({
+    type: z.literal('prompt_situation_input'),
+    personaCount: z.number().int().min(1).max(3),
+    requestedBy: z.string().min(1)
+  })
+]);
+
+export type ChannelState = z.infer<typeof channelStateSchema>;
+
 export type ChannelContext = {
   history: ConversationEntry[];
   personaStates: PersonaStateMap;
   scenario: ScenarioPrompt;
   responseMode: ResponseMode;
+  state: ChannelState;
 };
 
 export const defaultResponseMode: ResponseMode = { type: 'all' };
+export const defaultChannelState: ChannelState = { type: 'idle' };

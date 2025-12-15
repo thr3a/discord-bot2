@@ -47,22 +47,41 @@ describe('debugCommand', () => {
     allowedChannelIds.add(channelId);
     snapshotMock.mockResolvedValue({
       scenario: {
-        commonSetting: 'setting',
-        commonGuidelines: 'guidelines',
+        worldSetting: {
+          location: '舞台の街',
+          time: '夕暮れ前',
+          situation: '小さな誤解から距離ができた直後'
+        },
+        humanCharacter: {
+          name: 'ユーザー',
+          gender: '女性',
+          age: '20',
+          personality: '穏やか',
+          background: '同僚'
+        },
+        relationship: '同僚から恋人へ',
         personas: [
           {
             id: 'tsun',
             displayName: 'つんちゃん',
-            archetype: 'ツンデレ',
-            profile: 'profile',
-            speechStyle: 'style'
+            gender: '女性',
+            age: '20',
+            firstPerson: '私',
+            secondPerson: 'あんた',
+            personality: 'ツンデレ',
+            outfit: 'スーツ',
+            background: '幼なじみ'
           },
           {
             id: 'yan',
             displayName: 'やんちゃん',
-            archetype: 'ヤンデレ',
-            profile: 'profile',
-            speechStyle: 'style'
+            gender: '女性',
+            age: '20',
+            firstPerson: 'わたし',
+            secondPerson: 'きみ',
+            personality: 'ヤンデレ',
+            outfit: '私服',
+            background: '同級生'
           }
         ]
       },
@@ -74,7 +93,8 @@ describe('debugCommand', () => {
         { role: 'user', content: 'user message exceeding twenty chars' },
         { role: 'assistant', content: 'ok', personaId: 'yan' }
       ],
-      responseMode: { type: 'all' }
+      responseMode: { type: 'all' },
+      state: { type: 'idle' }
     });
     systemPromptMock.mockReturnValueOnce('tsun system exceeding twenty chars');
     systemPromptMock.mockReturnValueOnce('yan system exceeding twenty chars');

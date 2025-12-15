@@ -1,4 +1,4 @@
-import type { ChatInputCommandInteraction } from 'discord.js';
+import { AttachmentBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import { type MockedFunction, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('#discord/handlers/messageCreate.js', () => ({
@@ -7,7 +7,12 @@ vi.mock('#discord/handlers/messageCreate.js', () => ({
   buildSystemPrompt: vi.fn()
 }));
 
-import { noScenarioMessage, showCommand } from '#discord/commands/showCommand.js';
+import {
+  noScenarioMessage,
+  showCommand,
+  systemPromptFileName,
+  systemPromptFileNotice
+} from '#discord/commands/showCommand.js';
 import { allowedChannelIds, buildSystemPrompt, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
 import type { ScenarioPrompt } from '#types/scenario.js';
 
@@ -23,15 +28,30 @@ const createInteraction = (channelId = 'test-channel'): ChatInputCommandInteract
 };
 
 const sampleScenario: ScenarioPrompt = {
-  commonSetting: '部室で放課後トーク',
-  commonGuidelines: '地の文禁止',
+  worldSetting: {
+    location: '学園都市の部室棟',
+    time: '放課後の夕刻',
+    situation: '文化祭の準備で二人のヒロインと作戦会議中'
+  },
+  humanCharacter: {
+    name: 'ユーザー',
+    gender: '男性',
+    age: '18歳',
+    personality: '素直',
+    background: '同級生'
+  },
+  relationship: '幼なじみ',
   personas: [
     {
       id: 'tsun',
       displayName: 'つんちゃん',
-      archetype: 'ツンデレ',
-      profile: 'profile line',
-      speechStyle: 'style line'
+      gender: '女性',
+      age: '18歳',
+      firstPerson: '私',
+      secondPerson: 'あんた',
+      personality: '照れ屋',
+      outfit: 'ブレザー',
+      background: '幼なじみで世話焼き'
     }
   ]
 };
@@ -62,21 +82,23 @@ describe('showCommand', () => {
       personaStates: {
         tsun: { currentOutfit: 'セーラー服' }
       },
-      responseMode: { type: 'all' }
+      responseMode: { type: 'all' },
+      state: { type: 'idle' }
     });
     systemPromptMock.mockReturnValueOnce('system prompt for tsun');
     const interaction = createInteraction(channelId);
 
     await showCommand.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith({
-      content: 'system prompt for tsun'
-    });
-    expect(systemPromptMock).toHaveBeenCalledWith(
-      sampleScenario,
-      sampleScenario.personas[0],
-      'セーラー服'
-    );
+    expect(interaction.reply).toHaveBeenCalledTimes(1);
+    const replyPayload = interaction.reply.mock.calls[0][0];
+    expect(replyPayload.content).toBe(systemPromptFileNotice);
+    expect(replyPayload.files).toHaveLength(1);
+    const attachment = replyPayload.files[0] as AttachmentBuilder;
+    expect(attachment).toBeInstanceOf(AttachmentBuilder);
+    expect(attachment.name).toBe(systemPromptFileName);
+    expect(attachment.attachment.toString()).toBe('system prompt for tsun');
+    expect(systemPromptMock).toHaveBeenCalledWith(sampleScenario, sampleScenario.personas[0], 'セーラー服');
   });
 
   it('シチュエーションが存在しない場合は案内文を返す', async () => {
@@ -86,15 +108,21 @@ describe('showCommand', () => {
       scenario: undefined as unknown as ScenarioPrompt,
       history: [],
       personaStates: {},
-      responseMode: { type: 'all' }
+      responseMode: { type: 'all' },
+      state: { type: 'idle' }
     });
     const interaction = createInteraction(channelId);
 
     await showCommand.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith({
-      content: noScenarioMessage
-    });
+    expect(interaction.reply).toHaveBeenCalledTimes(1);
+    const replyPayload = interaction.reply.mock.calls[0][0];
+    expect(replyPayload.content).toBe(noScenarioMessage);
+    expect(replyPayload.files).toHaveLength(1);
+    const attachment = replyPayload.files[0] as AttachmentBuilder;
+    expect(attachment).toBeInstanceOf(AttachmentBuilder);
+    expect(attachment.name).toBe(systemPromptFileName);
+    expect(attachment.attachment.toString()).toBe(noScenarioMessage);
     expect(systemPromptMock).not.toHaveBeenCalled();
   });
 });

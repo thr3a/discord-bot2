@@ -11,6 +11,7 @@ vi.mock('#services/channelConversationStore.js', () => ({
   updateResponseMode: vi.fn()
 }));
 
+import { defaultScenarioPrompt } from '#config/defaultScenario.js';
 import { aiModeCommand } from '#discord/commands/aiModeCommand.js';
 import {
   allowedChannelIds,
@@ -18,6 +19,7 @@ import {
   setChannelResponseMode
 } from '#discord/handlers/messageCreate.js';
 import { updateResponseMode } from '#services/channelConversationStore.js';
+import type { ChannelContext } from '#types/conversation.js';
 
 const snapshotMock = getChannelContextSnapshot as MockedFunction<typeof getChannelContextSnapshot>;
 const setChannelResponseModeMock = setChannelResponseMode as MockedFunction<typeof setChannelResponseMode>;
@@ -35,18 +37,12 @@ const createInteraction = (channelId: string, target: string): ChatInputCommandI
   } as unknown as ChatInputCommandInteraction;
 };
 
-const sampleContext = {
-  scenario: {
-    commonSetting: 'setting',
-    commonGuidelines: 'guidelines',
-    personas: [
-      { id: 'tsun', displayName: 'つんちゃん', archetype: 'a', profile: 'b', speechStyle: 'c' },
-      { id: 'yan', displayName: 'やんちゃん', archetype: 'd', profile: 'e', speechStyle: 'f' }
-    ]
-  },
+const sampleContext: ChannelContext = {
+  scenario: defaultScenarioPrompt,
   personaStates: {},
   history: [],
-  responseMode: { type: 'all' } as const
+  responseMode: { type: 'all' },
+  state: { type: 'idle' }
 };
 
 describe('aiModeCommand', () => {

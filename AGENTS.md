@@ -50,6 +50,13 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 
 # スラッシュコマンド
 
+## /init
+
+- オプション `characters` (必須, 1〜3) でAIキャラクターの人数を指定。
+- コマンド実行時にチャンネル状態を `situation_input` へ遷移し、実行ユーザーのみが次のメッセージでシチュエーションを入力できる。
+- 入力されたテキストは LLM（generateObject）で `世界観/シーン/人間の設定/キャラクター設定(人数分)/目標/終了条件/トーン/関係性` を含む構造体へ拡張し、その結果を Firestore のシナリオとして保存する。
+- シチュエーション登録後は会話履歴をクリアし、`channels/{channelId}.state` を `idle` に戻す。
+
 ## /time
 
 - 現在の日本時間（Asia/Tokyo）を表示。
@@ -69,6 +76,7 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 ## /show
 
 - 現在登録されている全キャラクター分のシステムプロンプトを、AI に送信する文字列そのままで表示（`buildSystemPrompt`の結果を連結）。
+- Discord には常にテキストファイルを添付して送信し、本文は案内メッセージのみとする（Discord の 2000 文字制限に対応するため）。
 - シチュエーションが設定されていない場合、「現在登録されているシチュエーションはありません。/init で登録できます。」と返信。
 
 ### /clear
@@ -80,7 +88,7 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 
 - 対応チャンネルは `1005750360301912210` と `1269204261372166214` のみ。該当チャンネル以外では応答しないこと。
 - システムプロンプトは Firestore の `channels/{channelId}.scenario` に保存された構造体（Zod定義）を使用し、
-`commonSetting`/`commonGuidelines` とキャラクターごとのプロファイルを結合して生成する。
+`worldSetting.location/time/situation`、`humanCharacter`、`relationship` と各キャラクターの `gender/age/firstPerson/secondPerson/personality/outfit/background` を結合して生成する。
 - 登場キャラクターは現在 `つんちゃん(tsun)` と `やんちゃん(yan)` の2人。
 `/aimode target=all` の場合はどちらが先に話すかをランダムで決め、もう一方も同じ履歴を引き継いで必ず返答する（履歴は ユーザー→AI1→AI2 で3件増える）。
 `/aimode` で個別指定されている間は該当キャラクターのみ応答する。
@@ -91,8 +99,9 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 # Firestore永続化
 
 - 会話履歴は Firestore の `channels/{channelId}/messages` サブコレクションに `role`, `content`, `personaId`, `createdAt` で保存する。`personaId` でどのAIが話したか必ず記録する。
-- 各チャンネルのシナリオは `channels/{channelId}.scenario` に Zod 準拠の構造体として保存する（`commonSetting`, `commonGuidelines`, `personas[]`）。今後のカスタマイズに備え、常に最新構造を維持する。
+- 各チャンネルのシナリオは `channels/{channelId}.scenario` に Zod 準拠の構造体として保存する（`worldSetting{ location, time, situation }`, `humanCharacter`, `relationship`, `personas[]`）。今後のカスタマイズに備え、常に最新構造を維持する。
 - キャラクターごとの最新の服装は `channels/{channelId}.personaStates.{personaId}.currentOutfit` にのみ保持し、上書き管理する。
 - 現在の会話モードは `channels/{channelId}.responseMode` に `{ type: 'all' }` または `{ type: 'single', personaId }` で保存し、`/aimode` で切り替える。
+- チャンネル状態は `channels/{channelId}.state` に `{ type: 'idle' }`, `{ type: 'situation_input', personaCount, requestedBy }`, `{ type: 'prompt_situation_input', personaCount, requestedBy }`, `{ type: 'awaiting_reinput' }` のいずれかで保存する。
 - ボット起動時は Firestore から最新20件を読み込んで状態を復元し、以降も毎メッセージで同期する。
 - Firebase Emulator (デフォルト: `localhost:6066`) を使ってチャットまわりのテストを実施できる構成とし、本番実装と切り離す。

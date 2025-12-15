@@ -3,8 +3,16 @@ import { type Client, Events, type Message } from 'discord.js';
 import { dedent } from 'ts-dedent';
 import { z } from 'zod';
 import { roleplayModel } from '#config/openai.js';
-import { loadChannelContext, persistAssistantMessage, persistUserMessage } from '#services/channelConversationStore.js';
-import { isSingleResponseMode } from '#types/conversation.js';
+import {
+  clearChannelConversation,
+  loadChannelContext,
+  persistAssistantMessage,
+  persistChannelState,
+  persistScenarioPrompt,
+  persistUserMessage
+} from '#services/channelConversationStore.js';
+import { generateScenarioPrompt } from '#services/scenarioGenerator.js';
+import { defaultChannelState, defaultResponseMode, isSingleResponseMode } from '#types/conversation.js';
 import type {
   AssistantConversationEntry,
   ChannelContext,
@@ -33,7 +41,7 @@ type ModelMessage = {
   content: string;
 };
 
-const channelStates = new Map<string, ChannelContext>();
+const channelContexts = new Map<string, ChannelContext>();
 const channelQueues = new Map<string, Promise<void>>();
 
 const shuffle = <T>(list: T[]): T[] => {
@@ -52,21 +60,39 @@ const shuffle = <T>(list: T[]): T[] => {
 };
 
 export const buildSystemPrompt = (scenario: ScenarioPrompt, persona: PersonaPrompt, outfit?: string): string => {
-  const outfitLine = outfit ? `現在の服装: ${outfit}` : '現在の服装は自由に設定して構いません';
+  const outfitLine =
+    outfit && outfit.length > 0
+      ? `現在の服装: ${outfit}`
+      : '現在の服装: キャラクター設定をベースに自由に微調整して構いません';
+  const worldSetting = scenario.worldSetting;
   return dedent`
-    【シチュエーション】
-    ${scenario.commonSetting.trim()}
+    【舞台設定】
+    場所: ${worldSetting.location.trim()}
+    時期: ${worldSetting.time.trim()}
+    状況: ${worldSetting.situation.trim()}
 
-    【ルール】
-    ${scenario.commonGuidelines.trim()}
+    【人間がなりきる人物】
+    名前: ${scenario.humanCharacter.name}
+    性別: ${scenario.humanCharacter.gender}
+    年齢: ${scenario.humanCharacter.age}
+    性格: ${scenario.humanCharacter.personality}
+    背景: ${scenario.humanCharacter.background}
 
-    【キャラクター】
-    名前: ${persona.displayName} / ${persona.archetype}
-    プロフィール: ${persona.profile.trim()}
-    口調ガイド: ${persona.speechStyle.trim()}
+    【関係性】
+    ${scenario.relationship.trim()}
+
+    【あなたのキャラクター設定】
+    名前: ${persona.displayName}
+    性別: ${persona.gender}
+    年齢: ${persona.age}
+    一人称: ${persona.firstPerson}
+    二人称: ${persona.secondPerson}
+    性格: ${persona.personality}
+    服装: ${persona.outfit}
+    背景: ${persona.background}
     ${outfitLine}
 
-    返答は必ずキャラクターの一人称で1メッセージのみ。地の文は禁止。
+    返答は必ずキャラクターの一人称による台詞のみで行い、地の文やメタ発言は禁止です。
   `;
 };
 
@@ -128,12 +154,55 @@ const sendPersonaReply = async (
   });
 };
 
+const isScenarioInputState = (
+  state: ChannelContext['state']
+): state is Extract<ChannelContext['state'], { type: 'situation_input' | 'prompt_situation_input' }> => {
+  return state.type === 'situation_input' || state.type === 'prompt_situation_input';
+};
+
+const handleScenarioRegistrationMessage = async (
+  message: Message,
+  channelId: string,
+  content: string,
+  context: ChannelContext
+): Promise<void> => {
+  if (!isScenarioInputState(context.state)) {
+    if (context.state.type === 'awaiting_reinput') {
+      await message.reply('現在メッセージの再入力待ち状態です。しばらくお待ちください。');
+    }
+    return;
+  }
+  if (context.state.requestedBy !== message.author.id) {
+    await message.reply('/init を実行したユーザーだけがシチュエーションを入力できます。');
+    return;
+  }
+  if (!content) {
+    await message.reply('シチュエーションの内容を入力してください。');
+    return;
+  }
+  try {
+    const scenario = await generateScenarioPrompt(content, context.state.personaCount);
+    await clearChannelConversation(channelId);
+    const personaStates = await persistScenarioPrompt(channelId, scenario);
+    await persistChannelState(channelId, defaultChannelState);
+    context.history = [];
+    context.scenario = scenario;
+    context.personaStates = personaStates;
+    context.responseMode = defaultResponseMode;
+    context.state = defaultChannelState;
+    await message.reply('シチュエーションを登録しました。ロールプレイを開始できます。');
+  } catch (error) {
+    console.error('シチュエーション生成に失敗しました', error);
+    await message.reply('シチュエーションの生成に失敗しました。もう一度入力してください。');
+  }
+};
+
 export const resetChannelState = (channelId: string): void => {
-  channelStates.delete(channelId);
+  channelContexts.delete(channelId);
 };
 
 export const setChannelResponseMode = (channelId: string, responseMode: ResponseMode): void => {
-  const state = channelStates.get(channelId);
+  const state = channelContexts.get(channelId);
   if (!state) return;
   state.responseMode = responseMode;
 };
@@ -151,16 +220,17 @@ export const waitChannelQueueToFinish = async (channelId: string): Promise<void>
 };
 
 const getChannelState = async (channelId: string): Promise<ChannelContext> => {
-  const state = channelStates.get(channelId);
+  const state = channelContexts.get(channelId);
   if (state) return state;
   const persisted = await loadChannelContext(channelId, maxHistoryLength);
   const initialState: ChannelContext = {
     history: [...persisted.history],
     personaStates: { ...persisted.personaStates },
     scenario: persisted.scenario,
-    responseMode: persisted.responseMode
+    responseMode: persisted.responseMode,
+    state: persisted.state
   };
-  channelStates.set(channelId, initialState);
+  channelContexts.set(channelId, initialState);
   return initialState;
 };
 
@@ -174,7 +244,8 @@ export const getChannelContextSnapshot = async (channelId: string): Promise<Chan
     history: state.history.map((entry) => ({ ...entry })),
     personaStates,
     scenario: state.scenario,
-    responseMode: state.responseMode
+    responseMode: state.responseMode,
+    state: state.state
   };
 };
 
@@ -214,6 +285,12 @@ const handleRoleplayMessage = async (message: Message): Promise<void> => {
   try {
     const resolvedState = await getChannelState(channelId);
     state = resolvedState;
+
+    if (resolvedState.state.type !== 'idle') {
+      await handleScenarioRegistrationMessage(message, channelId, content, resolvedState);
+      return;
+    }
+
     const userEntry: UserConversationEntry = { role: 'user', content };
     resolvedState.history.push(userEntry);
     userEntryAdded = true;
