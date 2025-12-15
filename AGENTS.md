@@ -99,7 +99,6 @@ FIREBASE_SECRET_JSON='{"type": "service_account"...}'
 - 対応チャンネルは `1005750360301912210` と `1269204261372166214` のみ。該当チャンネル以外では応答しないこと。
 - システムプロンプトは Firestore の `channels/{channelId}.scenario` に保存された構造体（Zod定義）を使用し、
 `worldSetting.location/time/situation`、`humanCharacter`、各キャラクターごとの `relationship/gender/age/firstPerson/secondPerson/personality/outfit/background` を結合して生成する。
-- 登場キャラクターは現在 `つんちゃん(tsun)` と `やんちゃん(yan)` の2人。
 `/aimode target=all` の場合はどちらが先に話すかをランダムで決め、もう一方も同じ履歴を引き継いで必ず返答する（履歴は ユーザー→AI1→AI2 で3件増える）。
 `/aimode` で個別指定されている間は該当キャラクターのみ応答する。
 - 応答生成には AI SDK の `generateObject` を使用し、スキーマは `line` と `currentOutfit` の2項目。Discordには `line` のみ送信し、キャラクター名をメッセージ先頭に付与する。

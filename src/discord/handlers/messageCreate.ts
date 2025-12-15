@@ -44,7 +44,7 @@ type ModelMessage = {
 const channelContexts = new Map<string, ChannelContext>();
 const channelQueues = new Map<string, Promise<void>>();
 export const scenarioConfirmationEmoji = '🆗';
-const scenarioPreviewNotice = `シチュエーション案をテキストファイルで送信しました。問題なければ${scenarioConfirmationEmoji}リアクションで確定してください。`;
+const scenarioPreviewNotice = `シチュエーション案をテキストファイルで送信しました。${scenarioConfirmationEmoji}リアクションで登録できます。`;
 export const scenarioPreviewWaitingMessage = `シチュエーションの確認待ちです。プレビュー投稿に${scenarioConfirmationEmoji}リアクションを付けて確定してください。`;
 const emptyScenarioFallback = 'シチュエーション内容を生成できませんでした。もう一度お試しください。';
 
