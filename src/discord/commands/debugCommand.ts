@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { SlashCommand } from '#discord/commands/types.js';
-import { allowedChannelIds, buildSystemPrompt, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
+import { allowedChannelIds, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
+import { buildSystemPrompt } from '#discord/utils/systemPrompt.js';
 
 const previewLimit = 20;
 

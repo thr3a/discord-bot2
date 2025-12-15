@@ -1,21 +1,21 @@
 import { generateObject } from 'ai';
-import { type Client, Events, type Message } from 'discord.js';
-import { dedent } from 'ts-dedent';
+import { AttachmentBuilder, type Client, Events, type Message } from 'discord.js';
 import { z } from 'zod';
 import { roleplayModel } from '#config/openai.js';
+import { buildSystemPrompt, formatScenarioPrompts, systemPromptFileName } from '#discord/utils/systemPrompt.js';
 import {
-  clearChannelConversation,
   loadChannelContext,
   persistAssistantMessage,
   persistChannelState,
-  persistScenarioPrompt,
+  persistPendingScenario,
   persistUserMessage
 } from '#services/channelConversationStore.js';
 import { generateScenarioPrompt } from '#services/scenarioGenerator.js';
-import { defaultChannelState, defaultResponseMode, isSingleResponseMode } from '#types/conversation.js';
+import { isSingleResponseMode } from '#types/conversation.js';
 import type {
   AssistantConversationEntry,
   ChannelContext,
+  ChannelState,
   ConversationEntry,
   ConversationRole,
   PersonaId,
@@ -43,6 +43,17 @@ type ModelMessage = {
 
 const channelContexts = new Map<string, ChannelContext>();
 const channelQueues = new Map<string, Promise<void>>();
+export const scenarioConfirmationEmoji = '🆗';
+const scenarioPreviewNotice = `シチュエーション案をテキストファイルで送信しました。問題なければ${scenarioConfirmationEmoji}リアクションで確定してください。`;
+export const scenarioPreviewWaitingMessage = `シチュエーションの確認待ちです。プレビュー投稿に${scenarioConfirmationEmoji}リアクションを付けて確定してください。`;
+const emptyScenarioFallback = 'シチュエーション内容を生成できませんでした。もう一度お試しください。';
+
+const createScenarioPreviewAttachment = (scenario: ScenarioPrompt): AttachmentBuilder => {
+  const content = formatScenarioPrompts(scenario, {});
+  const trimmed = content.trim();
+  const fileContent = trimmed.length > 0 ? trimmed : emptyScenarioFallback;
+  return new AttachmentBuilder(Buffer.from(fileContent, 'utf-8'), { name: systemPromptFileName });
+};
 
 const shuffle = <T>(list: T[]): T[] => {
   const clone = [...list];
@@ -57,43 +68,6 @@ const shuffle = <T>(list: T[]): T[] => {
     clone[j] = current;
   }
   return clone;
-};
-
-export const buildSystemPrompt = (scenario: ScenarioPrompt, persona: PersonaPrompt, outfit?: string): string => {
-  const outfitLine =
-    outfit && outfit.length > 0
-      ? `現在の服装: ${outfit}`
-      : '現在の服装: キャラクター設定をベースに自由に微調整して構いません';
-  const worldSetting = scenario.worldSetting;
-  return dedent`
-    【舞台設定】
-    場所: ${worldSetting.location.trim()}
-    時期: ${worldSetting.time.trim()}
-    状況: ${worldSetting.situation.trim()}
-
-    【人間がなりきる人物】
-    名前: ${scenario.humanCharacter.name}
-    性別: ${scenario.humanCharacter.gender}
-    年齢: ${scenario.humanCharacter.age}
-    性格: ${scenario.humanCharacter.personality}
-    背景: ${scenario.humanCharacter.background}
-
-    【関係性】
-    ${scenario.relationship.trim()}
-
-    【あなたのキャラクター設定】
-    名前: ${persona.displayName}
-    性別: ${persona.gender}
-    年齢: ${persona.age}
-    一人称: ${persona.firstPerson}
-    二人称: ${persona.secondPerson}
-    性格: ${persona.personality}
-    服装: ${persona.outfit}
-    背景: ${persona.background}
-    ${outfitLine}
-
-    返答は必ずキャラクターの一人称による台詞のみで行い、地の文やメタ発言は禁止です。
-  `;
 };
 
 const buildMessageForModel = (history: ConversationEntry[], scenario: ScenarioPrompt): ModelMessage[] => {
@@ -166,6 +140,10 @@ const handleScenarioRegistrationMessage = async (
   content: string,
   context: ChannelContext
 ): Promise<void> => {
+  if (context.state.type === 'scenario_preview') {
+    await message.reply(scenarioPreviewWaitingMessage);
+    return;
+  }
   if (!isScenarioInputState(context.state)) {
     if (context.state.type === 'awaiting_reinput') {
       await message.reply('現在メッセージの再入力待ち状態です。しばらくお待ちください。');
@@ -180,18 +158,38 @@ const handleScenarioRegistrationMessage = async (
     await message.reply('シチュエーションの内容を入力してください。');
     return;
   }
+  let previewMessage: Message | undefined;
   try {
     const scenario = await generateScenarioPrompt(content, context.state.personaCount);
-    await clearChannelConversation(channelId);
-    const personaStates = await persistScenarioPrompt(channelId, scenario);
-    await persistChannelState(channelId, defaultChannelState);
-    context.history = [];
-    context.scenario = scenario;
-    context.personaStates = personaStates;
-    context.responseMode = defaultResponseMode;
-    context.state = defaultChannelState;
-    await message.reply('シチュエーションを登録しました。ロールプレイを開始できます。');
+    previewMessage = await message.reply({
+      content: scenarioPreviewNotice,
+      files: [createScenarioPreviewAttachment(scenario)]
+    });
+    await previewMessage.react(scenarioConfirmationEmoji).catch((error) => {
+      console.warn('🆗リアクションの付与に失敗しました', error);
+    });
+    const nextState: Extract<ChannelState, { type: 'scenario_preview' }> = {
+      type: 'scenario_preview',
+      personaCount: context.state.personaCount,
+      requestedBy: message.author.id,
+      previewMessageId: previewMessage.id
+    };
+    await persistPendingScenario(channelId, {
+      scenario,
+      personaCount: nextState.personaCount,
+      requestedBy: nextState.requestedBy,
+      previewMessageId: nextState.previewMessageId
+    });
+    await persistChannelState(channelId, nextState);
+    context.state = nextState;
   } catch (error) {
+    if (previewMessage) {
+      try {
+        await previewMessage.delete();
+      } catch (deleteError) {
+        console.warn('シチュエーションプレビューの削除に失敗しました', deleteError);
+      }
+    }
     console.error('シチュエーション生成に失敗しました', error);
     await message.reply('シチュエーションの生成に失敗しました。もう一度入力してください。');
   }
@@ -286,7 +284,8 @@ const handleRoleplayMessage = async (message: Message): Promise<void> => {
     const resolvedState = await getChannelState(channelId);
     state = resolvedState;
 
-    if (resolvedState.state.type !== 'idle') {
+    const isScenarioPreviewState = resolvedState.state.type === 'scenario_preview';
+    if (resolvedState.state.type !== 'idle' && !isScenarioPreviewState) {
       await handleScenarioRegistrationMessage(message, channelId, content, resolvedState);
       return;
     }
@@ -320,6 +319,7 @@ const handleRoleplayMessage = async (message: Message): Promise<void> => {
         model: roleplayModel,
         schema: responseSchema,
         messages: messagesForModel,
+        temperature: 0.7,
         system
       });
 

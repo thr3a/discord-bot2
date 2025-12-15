@@ -28,16 +28,32 @@ type MessageDocument = {
   createdAt: Timestamp;
 };
 
+type PendingScenarioDocument = {
+  scenario: ScenarioPrompt;
+  requestedBy: string;
+  previewMessageId: string;
+  personaCount: number;
+  createdAt: Timestamp;
+};
+
 type ChannelDocument = {
   scenario?: ScenarioPrompt;
   personaStates?: PersonaStateMap;
   responseMode?: ResponseMode;
   state?: ChannelState;
+  pendingScenario?: PendingScenarioDocument;
   updatedAt?: Timestamp;
 };
 
 type LegacyChannelDocument = ChannelDocument & {
   currentOutfit?: string;
+};
+
+export type PendingScenarioSnapshot = {
+  scenario: ScenarioPrompt;
+  requestedBy: string;
+  previewMessageId: string;
+  personaCount: number;
 };
 
 const channelsCollection = firestore.collection('channels');
@@ -49,11 +65,11 @@ const getMessagesCollection = (channelId: string): CollectionReference<MessageDo
 const parseScenarioPrompt = (candidate?: unknown): ScenarioPrompt | undefined => {
   if (!candidate) return undefined;
   const parsed = scenarioPromptSchema.safeParse(candidate);
-  if (!parsed.success) {
-    console.warn('シナリオデータのパースに失敗したためデフォルト値を使用します', parsed.error);
-    return undefined;
+  if (parsed.success) {
+    return parsed.data;
   }
-  return parsed.data;
+  console.warn('シナリオデータのパースに失敗したためデフォルト値を使用します', parsed.error);
+  return undefined;
 };
 
 const normalizePersonaStates = (scenario: ScenarioPrompt, states?: PersonaStateMap): PersonaStateMap => {
@@ -94,6 +110,25 @@ const parseChannelState = (candidate?: unknown): ChannelState | undefined => {
     return undefined;
   }
   return parsed.data;
+};
+
+const parsePendingScenario = (candidate?: unknown): PendingScenarioSnapshot | undefined => {
+  if (!candidate || typeof candidate !== 'object') return undefined;
+  const raw = candidate as Partial<PendingScenarioDocument>;
+  const scenario = parseScenarioPrompt(raw.scenario);
+  const requestedBy = typeof raw.requestedBy === 'string' ? raw.requestedBy : undefined;
+  const previewMessageId = typeof raw.previewMessageId === 'string' ? raw.previewMessageId : undefined;
+  const personaCount = typeof raw.personaCount === 'number' ? raw.personaCount : undefined;
+  if (!scenario || !requestedBy || !previewMessageId || personaCount === undefined) {
+    return undefined;
+  }
+  const boundedPersonaCount = Math.max(1, Math.min(3, Math.floor(personaCount)));
+  return {
+    scenario,
+    requestedBy,
+    previewMessageId,
+    personaCount: boundedPersonaCount
+  };
 };
 
 const deleteLegacyFieldsIfNeeded = (rawData?: LegacyChannelDocument): Record<string, unknown> => {
@@ -241,6 +276,38 @@ export const persistScenarioPrompt = async (channelId: string, scenario: Scenari
     { merge: true }
   );
   return personaStates;
+};
+
+export const persistPendingScenario = async (channelId: string, pending: PendingScenarioSnapshot): Promise<void> => {
+  await channelsCollection.doc(channelId).set(
+    {
+      pendingScenario: {
+        ...pending,
+        createdAt: Timestamp.now()
+      },
+      updatedAt: Timestamp.now()
+    },
+    { merge: true }
+  );
+};
+
+export const loadPendingScenario = async (channelId: string): Promise<PendingScenarioSnapshot | undefined> => {
+  const snapshot = await channelsCollection.doc(channelId).get();
+  if (!snapshot.exists) {
+    return undefined;
+  }
+  const data = snapshot.data() as ChannelDocument;
+  return parsePendingScenario(data.pendingScenario);
+};
+
+export const clearPendingScenario = async (channelId: string): Promise<void> => {
+  await channelsCollection.doc(channelId).set(
+    {
+      pendingScenario: FieldValue.delete(),
+      updatedAt: Timestamp.now()
+    },
+    { merge: true }
+  );
 };
 
 const deleteMessagesInChunks = async (collection: CollectionReference<MessageDocument>): Promise<void> => {

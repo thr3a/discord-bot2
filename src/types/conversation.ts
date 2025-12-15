@@ -43,6 +43,12 @@ export const channelStateSchema = z.discriminatedUnion('type', [
     personaCount: z.number().int().min(1).max(3),
     requestedBy: z.string().min(1)
   }),
+  z.object({
+    type: z.literal('scenario_preview'),
+    personaCount: z.number().int().min(1).max(3),
+    requestedBy: z.string().min(1),
+    previewMessageId: z.string().min(1)
+  }),
   z.object({ type: z.literal('awaiting_reinput') }),
   z.object({
     type: z.literal('prompt_situation_input'),

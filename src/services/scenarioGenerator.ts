@@ -7,7 +7,7 @@ import type { ScenarioPrompt } from '#types/scenario.js';
 const humanSchema = z.object({
   name: z.string().min(1).describe('名前'),
   gender: z.string().min(1).describe('性別'),
-  age: z.string().min(1).describe('年齢'),
+  age: z.number().describe('年齢'),
   personality: z.string().min(1).describe('性格'),
   background: z.string().min(1).describe('背景')
 });
@@ -15,12 +15,13 @@ const humanSchema = z.object({
 const aiCharacterSchema = z.object({
   name: z.string().min(1).describe('名前'),
   gender: z.string().min(1).describe('性別'),
-  age: z.string().min(1).describe('年齢'),
+  age: z.number().describe('年齢'),
   firstPerson: z.string().min(1).describe('一人称 例:俺、わたし'),
   secondPerson: z.string().min(1).describe('二人称 例: あなた、〇〇くん'),
   personality: z.string().min(1).describe('性格'),
   outfit: z.string().min(1).describe('服装'),
-  background: z.string().min(1).describe('背景')
+  background: z.string().min(1).describe('背景'),
+  relationship: z.string().min(1).describe('HUMANとの関係性')
 });
 
 const scenarioGenerationSchema = z.object({
@@ -32,18 +33,15 @@ const scenarioGenerationSchema = z.object({
     })
     .describe('世界観の設定'),
   humanCharacter: humanSchema,
-  aiCharacters: z.array(aiCharacterSchema).min(1),
-  relationship: z.string().min(1).describe('キャラクター間の関係性')
+  aiCharacters: z.array(aiCharacterSchema).min(1)
 });
 
 type ScenarioGenerationResult = z.infer<typeof scenarioGenerationSchema>;
 
 const systemPrompt = dedent`
   あなたは、読者の想像力を掻き立て、深い没入感を与えるエロティックな物語を創り出すことに特化したプロの小説家です。
-  あなたの任務は、入力されたシチュエーションを基に、ロールプレイの魅力を最大限に引き出すための詳細な世界観、キャラクター設定、プロットの骨子を構築することです。
-  この設定は、クリエイター向けに創作のインスピレーションとなるアイデアを提供することを目的としています。
+  あなたの任務は、入力されたシチュエーションを基に、ロールプレイの魅力を最大限に引き出すための世界観、キャラクター設定、プロットの骨子を簡潔な文章で構築することです。
   入力されたシチュエーションから情報を一切抜け落としてはいけません。
-  以下の項目それぞれに必ず文章で回答し、指定された人数分のキャラクター設定を出力してください。
 `;
 
 const buildUserPrompt = (situation: string, personaCount: number): string => {
@@ -82,12 +80,13 @@ const toScenarioPrompt = (raw: ScenarioGenerationResult, personaCount: number): 
       id,
       displayName,
       gender: character.gender.trim(),
-      age: character.age.trim(),
+      age: character.age,
       firstPerson: character.firstPerson.trim(),
       secondPerson: character.secondPerson.trim(),
       personality: character.personality.trim(),
       outfit: character.outfit.trim(),
-      background: character.background.trim()
+      background: character.background.trim(),
+      relationship: character.relationship.trim()
     };
   });
   if (personas.length < requestedCount) {
@@ -102,11 +101,10 @@ const toScenarioPrompt = (raw: ScenarioGenerationResult, personaCount: number): 
     humanCharacter: {
       name: raw.humanCharacter.name.trim(),
       gender: raw.humanCharacter.gender.trim(),
-      age: raw.humanCharacter.age.trim(),
+      age: raw.humanCharacter.age,
       personality: raw.humanCharacter.personality.trim(),
       background: raw.humanCharacter.background.trim()
     },
-    relationship: raw.relationship.trim(),
     personas
   };
 };
@@ -117,6 +115,7 @@ export const generateScenarioPrompt = async (situation: string, personaCount: nu
     model: roleplayModel,
     system: systemPrompt,
     schema: scenarioGenerationSchema,
+    temperature: 0.7,
     messages: [
       {
         role: 'user',

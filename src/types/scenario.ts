@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const humanCharacterSchema = z.object({
   name: z.string().min(1),
   gender: z.string().min(1),
-  age: z.string().min(1),
+  age: z.number().min(1),
   personality: z.string().min(1),
   background: z.string().min(1)
 });
@@ -12,12 +12,13 @@ export const personaPromptSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().min(1),
   gender: z.string().min(1),
-  age: z.string().min(1),
+  age: z.number().min(1),
   firstPerson: z.string().min(1),
   secondPerson: z.string().min(1),
   personality: z.string().min(1),
   outfit: z.string().min(1),
-  background: z.string().min(1)
+  background: z.string().min(1),
+  relationship: z.string().min(1)
 });
 
 export const worldSettingSchema = z.object({
@@ -29,7 +30,6 @@ export const worldSettingSchema = z.object({
 export const scenarioPromptSchema = z.object({
   worldSetting: worldSettingSchema,
   humanCharacter: humanCharacterSchema,
-  relationship: z.string().min(1),
   personas: z.array(personaPromptSchema).min(1).max(3)
 });
 

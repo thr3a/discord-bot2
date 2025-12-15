@@ -4,6 +4,7 @@ import {
   allowedChannelIds,
   getChannelContextSnapshot,
   resetChannelState,
+  scenarioPreviewWaitingMessage,
   waitChannelQueueToFinish
 } from '#discord/handlers/messageCreate.js';
 import { persistChannelState } from '#services/channelConversationStore.js';
@@ -43,8 +44,12 @@ export const initCommand: SlashCommand = {
 
     const context = await getChannelContextSnapshot(channelId);
     if (context.state.type !== 'idle') {
+      const content =
+        context.state.type === 'scenario_preview'
+          ? scenarioPreviewWaitingMessage
+          : '現在別のシチュエーション入力待ちです。完了してから再度お試しください。';
       await interaction.reply({
-        content: '現在別のシチュエーション入力待ちです。完了してから再度お試しください。',
+        content,
         ephemeral: true
       });
       return;

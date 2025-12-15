@@ -3,12 +3,16 @@ import { type MockedFunction, afterEach, beforeEach, describe, expect, it, vi } 
 
 vi.mock('#discord/handlers/messageCreate.js', () => ({
   allowedChannelIds: new Set<string>(),
-  getChannelContextSnapshot: vi.fn(),
+  getChannelContextSnapshot: vi.fn()
+}));
+
+vi.mock('#discord/utils/systemPrompt.js', () => ({
   buildSystemPrompt: vi.fn()
 }));
 
 import { debugCommand, formatContentPreview } from '#discord/commands/debugCommand.js';
-import { allowedChannelIds, buildSystemPrompt, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
+import { allowedChannelIds, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
+import { buildSystemPrompt } from '#discord/utils/systemPrompt.js';
 
 const snapshotMock = getChannelContextSnapshot as MockedFunction<typeof getChannelContextSnapshot>;
 const systemPromptMock = buildSystemPrompt as MockedFunction<typeof buildSystemPrompt>;
@@ -55,33 +59,34 @@ describe('debugCommand', () => {
         humanCharacter: {
           name: 'ユーザー',
           gender: '女性',
-          age: '20',
+          age: 20,
           personality: '穏やか',
           background: '同僚'
         },
-        relationship: '同僚から恋人へ',
         personas: [
           {
             id: 'tsun',
             displayName: 'つんちゃん',
             gender: '女性',
-            age: '20',
+            age: 20,
             firstPerson: '私',
             secondPerson: 'あんた',
             personality: 'ツンデレ',
             outfit: 'スーツ',
-            background: '幼なじみ'
+            background: '幼なじみ',
+            relationship: '仕事では同僚として張り合いながらも密かに惹かれている'
           },
           {
             id: 'yan',
             displayName: 'やんちゃん',
             gender: '女性',
-            age: '20',
+            age: 20,
             firstPerson: 'わたし',
             secondPerson: 'きみ',
             personality: 'ヤンデレ',
             outfit: '私服',
-            background: '同級生'
+            background: '同級生',
+            relationship: '同僚であり恋人未満の親友として強い独占欲を抱いている'
           }
         ]
       },

@@ -2,10 +2,16 @@ import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { envConfig } from '#config/env.js';
 import { registerInteractionCreateHandler } from '#discord/handlers/interactionCreate.js';
 import { registerMessageCreateHandler } from '#discord/handlers/messageCreate.js';
+import { registerMessageReactionAddHandler } from '#discord/handlers/messageReactionAdd.js';
 import { registerCommands } from '#discord/registerCommands.js';
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions
+  ]
 });
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -20,6 +26,7 @@ client.on(Events.Error, (error) => {
 const bootstrap = async (): Promise<void> => {
   registerInteractionCreateHandler(client);
   registerMessageCreateHandler(client);
+  registerMessageReactionAddHandler(client);
   await registerCommands();
   await client.login(envConfig.discordBotToken);
 };

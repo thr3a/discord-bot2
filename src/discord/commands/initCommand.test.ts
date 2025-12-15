@@ -8,7 +8,8 @@ vi.mock('#discord/handlers/messageCreate.js', () => ({
   allowedChannelIds: new Set<string>(),
   getChannelContextSnapshot: vi.fn(),
   resetChannelState: vi.fn(),
-  waitChannelQueueToFinish: vi.fn()
+  waitChannelQueueToFinish: vi.fn(),
+  scenarioPreviewWaitingMessage: 'プレビュー待ち'
 }));
 
 vi.mock('#services/channelConversationStore.js', () => ({
@@ -20,6 +21,7 @@ import {
   allowedChannelIds,
   getChannelContextSnapshot,
   resetChannelState,
+  scenarioPreviewWaitingMessage,
   waitChannelQueueToFinish
 } from '#discord/handlers/messageCreate.js';
 import { persistChannelState } from '#services/channelConversationStore.js';
@@ -90,6 +92,30 @@ describe('initCommand', () => {
       content: '現在別のシチュエーション入力待ちです。完了してから再度お試しください。',
       ephemeral: true
     });
+    expect(persistChannelStateMock).not.toHaveBeenCalled();
+  });
+
+  it('プレビュー確認中は案内メッセージを返す', async () => {
+    const channelId = 'allowed';
+    allowedChannelIds.add(channelId);
+    const interaction = createInteraction(channelId);
+    getChannelContextSnapshotMock.mockResolvedValue({
+      ...baseContext,
+      state: {
+        type: 'scenario_preview',
+        personaCount: 2,
+        requestedBy: 'user-1',
+        previewMessageId: 'message-1'
+      }
+    });
+
+    await initCommand.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith({
+      content: scenarioPreviewWaitingMessage,
+      ephemeral: true
+    });
+    expect(waitChannelQueueToFinishMock).toHaveBeenCalledWith(channelId);
     expect(persistChannelStateMock).not.toHaveBeenCalled();
   });
 

@@ -1,10 +1,14 @@
-import { AttachmentBuilder, type ChatInputCommandInteraction } from 'discord.js';
+import { AttachmentBuilder, type ChatInputCommandInteraction, type InteractionReplyOptions } from 'discord.js';
 import { type MockedFunction, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('#discord/handlers/messageCreate.js', () => ({
   allowedChannelIds: new Set<string>(),
-  getChannelContextSnapshot: vi.fn(),
-  buildSystemPrompt: vi.fn()
+  getChannelContextSnapshot: vi.fn()
+}));
+
+vi.mock('#discord/utils/systemPrompt.js', () => ({
+  formatScenarioPrompts: vi.fn(),
+  systemPromptFileName: 'system-prompts.txt'
 }));
 
 import {
@@ -13,18 +17,33 @@ import {
   systemPromptFileName,
   systemPromptFileNotice
 } from '#discord/commands/showCommand.js';
-import { allowedChannelIds, buildSystemPrompt, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
+import { allowedChannelIds, getChannelContextSnapshot } from '#discord/handlers/messageCreate.js';
+import { formatScenarioPrompts } from '#discord/utils/systemPrompt.js';
 import type { ScenarioPrompt } from '#types/scenario.js';
 
 const snapshotMock = getChannelContextSnapshot as MockedFunction<typeof getChannelContextSnapshot>;
-const systemPromptMock = buildSystemPrompt as MockedFunction<typeof buildSystemPrompt>;
+const formatScenarioPromptsMock = formatScenarioPrompts as MockedFunction<typeof formatScenarioPrompts>;
 
-const createInteraction = (channelId = 'test-channel'): ChatInputCommandInteraction => {
-  const reply = vi.fn();
+type InteractionReplyMock = MockedFunction<ChatInputCommandInteraction['reply']>;
+
+type MockChatInputCommandInteraction = ChatInputCommandInteraction & {
+  reply: InteractionReplyMock;
+};
+
+const createInteraction = (channelId = 'test-channel'): MockChatInputCommandInteraction => {
+  const reply = vi.fn<ChatInputCommandInteraction['reply']>();
   return {
     channelId,
     reply
-  } as unknown as ChatInputCommandInteraction;
+  } as unknown as MockChatInputCommandInteraction;
+};
+
+const getReplyPayload = (interaction: MockChatInputCommandInteraction): InteractionReplyOptions => {
+  const firstCall = interaction.reply.mock.calls[0];
+  if (!firstCall) {
+    throw new Error('reply が呼び出されていません');
+  }
+  return firstCall[0] as InteractionReplyOptions;
 };
 
 const sampleScenario: ScenarioPrompt = {
@@ -36,22 +55,22 @@ const sampleScenario: ScenarioPrompt = {
   humanCharacter: {
     name: 'ユーザー',
     gender: '男性',
-    age: '18歳',
+    age: 18,
     personality: '素直',
     background: '同級生'
   },
-  relationship: '幼なじみ',
   personas: [
     {
       id: 'tsun',
       displayName: 'つんちゃん',
       gender: '女性',
-      age: '18歳',
+      age: 18,
       firstPerson: '私',
       secondPerson: 'あんた',
       personality: '照れ屋',
       outfit: 'ブレザー',
-      background: '幼なじみで世話焼き'
+      background: '幼なじみで世話焼き',
+      relationship: '幼なじみで互いに想いを隠し合っている'
     }
   ]
 };
@@ -60,7 +79,7 @@ describe('showCommand', () => {
   beforeEach(() => {
     allowedChannelIds.clear();
     snapshotMock.mockReset();
-    systemPromptMock.mockReset();
+    formatScenarioPromptsMock.mockReset();
   });
 
   it('許可されていないチャンネルではエラーメッセージを返す', async () => {
@@ -85,20 +104,29 @@ describe('showCommand', () => {
       responseMode: { type: 'all' },
       state: { type: 'idle' }
     });
-    systemPromptMock.mockReturnValueOnce('system prompt for tsun');
+    formatScenarioPromptsMock.mockReturnValueOnce('system prompt for tsun');
     const interaction = createInteraction(channelId);
 
     await showCommand.execute(interaction);
 
     expect(interaction.reply).toHaveBeenCalledTimes(1);
-    const replyPayload = interaction.reply.mock.calls[0][0];
+    const replyPayload = getReplyPayload(interaction);
     expect(replyPayload.content).toBe(systemPromptFileNotice);
-    expect(replyPayload.files).toHaveLength(1);
-    const attachment = replyPayload.files[0] as AttachmentBuilder;
+    const files = replyPayload.files as AttachmentBuilder[] | undefined;
+    if (!files) {
+      throw new Error('添付ファイルが存在しません');
+    }
+    expect(files).toHaveLength(1);
+    const attachment = files[0];
+    if (!attachment) {
+      throw new Error('添付ファイルの取得に失敗しました');
+    }
     expect(attachment).toBeInstanceOf(AttachmentBuilder);
     expect(attachment.name).toBe(systemPromptFileName);
     expect(attachment.attachment.toString()).toBe('system prompt for tsun');
-    expect(systemPromptMock).toHaveBeenCalledWith(sampleScenario, sampleScenario.personas[0], 'セーラー服');
+    expect(formatScenarioPromptsMock).toHaveBeenCalledWith(sampleScenario, {
+      tsun: { currentOutfit: 'セーラー服' }
+    });
   });
 
   it('シチュエーションが存在しない場合は案内文を返す', async () => {
@@ -116,13 +144,20 @@ describe('showCommand', () => {
     await showCommand.execute(interaction);
 
     expect(interaction.reply).toHaveBeenCalledTimes(1);
-    const replyPayload = interaction.reply.mock.calls[0][0];
+    const replyPayload = getReplyPayload(interaction);
     expect(replyPayload.content).toBe(noScenarioMessage);
-    expect(replyPayload.files).toHaveLength(1);
-    const attachment = replyPayload.files[0] as AttachmentBuilder;
+    const files = replyPayload.files as AttachmentBuilder[] | undefined;
+    if (!files) {
+      throw new Error('添付ファイルが存在しません');
+    }
+    expect(files).toHaveLength(1);
+    const attachment = files[0];
+    if (!attachment) {
+      throw new Error('添付ファイルの取得に失敗しました');
+    }
     expect(attachment).toBeInstanceOf(AttachmentBuilder);
     expect(attachment.name).toBe(systemPromptFileName);
     expect(attachment.attachment.toString()).toBe(noScenarioMessage);
-    expect(systemPromptMock).not.toHaveBeenCalled();
+    expect(formatScenarioPromptsMock).not.toHaveBeenCalled();
   });
 });
